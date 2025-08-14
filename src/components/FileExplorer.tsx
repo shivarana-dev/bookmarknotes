@@ -68,22 +68,34 @@ export default function FileExplorer() {
     try {
       setLoading(true);
       
-      // Load folders
-      const { data: foldersData, error: foldersError } = await supabase
+      // Load folders - handle null parent_id properly
+      let foldersQuery = supabase
         .from('folders')
-        .select('*')
-        .eq('parent_id', currentFolderId)
-        .order('name');
+        .select('*');
+      
+      if (currentFolderId) {
+        foldersQuery = foldersQuery.eq('parent_id', currentFolderId);
+      } else {
+        foldersQuery = foldersQuery.is('parent_id', null);
+      }
+      
+      const { data: foldersData, error: foldersError } = await foldersQuery.order('name');
 
       if (foldersError) throw foldersError;
       setFolders(foldersData || []);
 
-      // Load files
-      const { data: filesData, error: filesError } = await supabase
+      // Load files - handle null folder_id properly
+      let filesQuery = supabase
         .from('files')
-        .select('*')
-        .eq('folder_id', currentFolderId || '')
-        .order('name');
+        .select('*');
+        
+      if (currentFolderId) {
+        filesQuery = filesQuery.eq('folder_id', currentFolderId);
+      } else {
+        filesQuery = filesQuery.is('folder_id', null);
+      }
+      
+      const { data: filesData, error: filesError } = await filesQuery.order('name');
 
       if (filesError) throw filesError;
       setFiles(filesData || []);
