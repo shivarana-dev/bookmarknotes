@@ -1,0 +1,29 @@
+{
+  "name": "Bookmark - Organize Your Materials",
+  "short_name": "Bookmark",
+  "description": "Organize your study materials and documents efficiently",
+  "theme_color": "#18181b",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "categories": ["productivity", "education", "utilities"],
+  "icons": [
+    {
+      "src": "/lovable-uploads/8a59dbbc-df78-4864-8163-6aaf2c63c051.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Create Folder",
+      "short_name": "New Folder",
+      "description": "Create a new folder",
+      "url": "/?action=new-folder",
+      "icons": [{ "src": "/lovable-uploads/8a59dbbc-df78-4864-8163-6aaf2c63c051.png", "sizes": "192x192" }]
+    }
+  ]
+}

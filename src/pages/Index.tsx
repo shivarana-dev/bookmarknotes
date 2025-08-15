@@ -4,7 +4,9 @@ import FileExplorer from '@/components/FileExplorer';
 const Index = () => {
   return (
     <AuthWrapper>
-      <FileExplorer />
+      <div className="w-full">
+        <FileExplorer />
+      </div>
     </AuthWrapper>
   );
 };
