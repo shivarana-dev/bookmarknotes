@@ -15,8 +15,10 @@ import {
   ArrowLeft,
   MoreHorizontal,
   Edit2,
-  Trash2
+  Trash2,
+  Settings
 } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -189,7 +191,7 @@ export default function FileExplorer() {
           name: newNoteName.trim(),
           type: 'note',
           content: newNoteContent,
-          folder_id: currentFolderId || '',
+        folder_id: currentFolderId,
           user_id: (await supabase.auth.getUser()).data.user?.id
         }]);
 
@@ -235,7 +237,7 @@ export default function FileExplorer() {
           file_path: filePath,
           mime_type: file.type,
           file_size: file.size,
-          folder_id: currentFolderId || '',
+          folder_id: currentFolderId,
           user_id: (await supabase.auth.getUser()).data.user?.id
         }]);
 
@@ -303,186 +305,203 @@ export default function FileExplorer() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          {currentFolderId && (
-            <Button variant="outline" size="sm" onClick={navigateUp}>
-              <ArrowLeft className="h-4 w-4" />
+      <div className="sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b z-50">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-xl sm:text-2xl font-bold">Study Shelf</h1>
+              <ThemeToggle />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="container mx-auto px-4 py-6 space-y-6">
+        {/* Navigation */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center space-x-2">
+            {currentFolderId && (
+              <Button variant="outline" size="sm" onClick={navigateUp}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div className="flex items-center space-x-1 text-sm text-muted-foreground overflow-x-auto">
+              <span 
+                className="cursor-pointer hover:text-foreground whitespace-nowrap"
+                onClick={() => navigateToFolder(null)}
+              >
+                Home
+              </span>
+              {currentPath.map((folder, index) => (
+                <React.Fragment key={folder.id}>
+                  <span>/</span>
+                  <span 
+                    className="cursor-pointer hover:text-foreground whitespace-nowrap"
+                    onClick={() => navigateToFolder(folder.id)}
+                  >
+                    {folder.name}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="flex-1 sm:flex-initial">
+                  <FolderPlus className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">New Folder</span>
+                  <span className="sm:hidden">Folder</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="mx-4">
+                <DialogHeader>
+                  <DialogTitle>Create New Folder</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Input
+                    placeholder="Folder name"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && createFolder()}
+                  />
+                  <div className="flex space-x-2">
+                    <Button onClick={createFolder} className="flex-1">Create</Button>
+                    <Button variant="outline" onClick={() => setShowNewFolder(false)} className="flex-1">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={showNewNote} onOpenChange={setShowNewNote}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="flex-1 sm:flex-initial">
+                  <FilePlus className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">New Note</span>
+                  <span className="sm:hidden">Note</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="mx-4 max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Create New Note</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Input
+                    placeholder="Note title"
+                    value={newNoteName}
+                    onChange={(e) => setNewNoteName(e.target.value)}
+                  />
+                  <Textarea
+                    placeholder="Note content"
+                    value={newNoteContent}
+                    onChange={(e) => setNewNoteContent(e.target.value)}
+                    className="min-h-[200px]"
+                  />
+                  <div className="flex space-x-2">
+                    <Button onClick={createNote} className="flex-1">Create</Button>
+                    <Button variant="outline" onClick={() => setShowNewNote(false)} className="flex-1">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-initial">
+              <label className="cursor-pointer">
+                <Upload className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Upload File</span>
+                <span className="sm:hidden">Upload</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </label>
             </Button>
-          )}
-          <div className="flex items-center space-x-1 text-sm text-muted-foreground">
-            <span 
-              className="cursor-pointer hover:text-foreground"
-              onClick={() => navigateToFolder(null)}
-            >
-              Home
-            </span>
-            {currentPath.map((folder, index) => (
-              <React.Fragment key={folder.id}>
-                <span>/</span>
-                <span 
-                  className="cursor-pointer hover:text-foreground"
-                  onClick={() => navigateToFolder(folder.id)}
-                >
-                  {folder.name}
-                </span>
-              </React.Fragment>
-            ))}
           </div>
         </div>
 
-        <div className="flex space-x-2">
-          <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <FolderPlus className="h-4 w-4 mr-2" />
-                New Folder
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Folder</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Input
-                  placeholder="Folder name"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && createFolder()}
-                />
-                <div className="flex space-x-2">
-                  <Button onClick={createFolder}>Create</Button>
-                  <Button variant="outline" onClick={() => setShowNewFolder(false)}>
-                    Cancel
-                  </Button>
+        {/* Content Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {folders.map((folder) => (
+            <Card key={folder.id} className="hover:shadow-md transition-shadow cursor-pointer">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div 
+                    className="flex items-center space-x-2 flex-1 min-w-0"
+                    onClick={() => navigateToFolder(folder.id)}
+                  >
+                    <Folder className="h-5 w-5 text-primary flex-shrink-0" />
+                    <CardTitle className="text-sm truncate">{folder.name}</CardTitle>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="flex-shrink-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => deleteItem('folder', folder.id, folder.name)}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </CardHeader>
+            </Card>
+          ))}
 
-          <Dialog open={showNewNote} onOpenChange={setShowNewNote}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <FilePlus className="h-4 w-4 mr-2" />
-                New Note
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Create New Note</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Input
-                  placeholder="Note title"
-                  value={newNoteName}
-                  onChange={(e) => setNewNoteName(e.target.value)}
-                />
-                <Textarea
-                  placeholder="Note content"
-                  value={newNoteContent}
-                  onChange={(e) => setNewNoteContent(e.target.value)}
-                  className="min-h-[200px]"
-                />
-                <div className="flex space-x-2">
-                  <Button onClick={createNote}>Create</Button>
-                  <Button variant="outline" onClick={() => setShowNewNote(false)}>
-                    Cancel
-                  </Button>
+          {files.map((file) => (
+            <Card key={file.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 flex-1 min-w-0">
+                    <File className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    <CardTitle className="text-sm truncate">{file.name}</CardTitle>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="flex-shrink-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => deleteItem('file', file.id, file.name)}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          <Button variant="outline" size="sm" asChild>
-            <label className="cursor-pointer">
-              <Upload className="h-4 w-4 mr-2" />
-              Upload File
-              <input
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-            </label>
-          </Button>
+              </CardHeader>
+              {file.type === 'note' && file.content && (
+                <CardContent>
+                  <p className="text-sm text-muted-foreground line-clamp-3">
+                    {file.content}
+                  </p>
+                </CardContent>
+              )}
+            </Card>
+          ))}
         </div>
+
+        {folders.length === 0 && files.length === 0 && (
+          <div className="text-center py-16 px-4">
+            <Folder className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No items here yet</h3>
+            <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+              Start organizing your study materials by creating folders and adding files.
+            </p>
+          </div>
+        )}
       </div>
-
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {folders.map((folder) => (
-          <Card key={folder.id} className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div 
-                  className="flex items-center space-x-2 flex-1"
-                  onClick={() => navigateToFolder(folder.id)}
-                >
-                  <Folder className="h-5 w-5 text-blue-500" />
-                  <CardTitle className="text-sm truncate">{folder.name}</CardTitle>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => deleteItem('folder', folder.id, folder.name)}>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardHeader>
-          </Card>
-        ))}
-
-        {files.map((file) => (
-          <Card key={file.id} className="hover:shadow-md transition-shadow">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2 flex-1">
-                  <File className="h-5 w-5 text-gray-500" />
-                  <CardTitle className="text-sm truncate">{file.name}</CardTitle>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => deleteItem('file', file.id, file.name)}>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardHeader>
-            {file.type === 'note' && file.content && (
-              <CardContent>
-                <p className="text-sm text-muted-foreground line-clamp-3">
-                  {file.content}
-                </p>
-              </CardContent>
-            )}
-          </Card>
-        ))}
-      </div>
-
-      {folders.length === 0 && files.length === 0 && (
-        <div className="text-center py-16">
-          <Folder className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No items here yet</h3>
-          <p className="text-muted-foreground mb-4">
-            Start organizing your study materials by creating folders and adding files.
-          </p>
-        </div>
-      )}
     </div>
   );
 }
