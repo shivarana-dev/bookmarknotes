@@ -17,10 +17,8 @@ export function MobileHeader() {
         <h1 className="text-lg font-semibold">Bookmark</h1>
       </div>
       
-      <SidebarTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <Menu className="h-5 w-5" />
-        </Button>
+      <SidebarTrigger className="p-2 hover:bg-accent hover:text-accent-foreground">
+        <Menu className="h-5 w-5" />
       </SidebarTrigger>
     </header>
   );
