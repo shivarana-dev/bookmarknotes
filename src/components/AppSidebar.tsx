@@ -6,6 +6,7 @@ import {
   FileText,
   Shield,
   LogOut,
+  Mail,
   Bookmark as BookmarkIcon
 } from 'lucide-react';
 import {
@@ -136,30 +137,54 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <div className="space-y-2">
-          <div className="flex items-center justify-center">
+          <div className="hidden md:flex items-center justify-center">
             <ThemeToggle />
           </div>
           
           {!collapsed && (
-            <Button
-              variant="ghost"
-              onClick={handleSignOut}
-              className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <LogOut className="h-4 w-4" />
-              Sign Out
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => window.location.href = 'mailto:shivarana6877@gmail.com'}
+                className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
+              >
+                <Mail className="h-4 w-4" />
+                Contact Us
+              </Button>
+              
+              <Button
+                variant="ghost"
+                onClick={handleSignOut}
+                className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
+            </>
           )}
           
           {collapsed && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleSignOut}
-              className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.href = 'mailto:shivarana6877@gmail.com'}
+                className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
+                title="Contact Us"
+              >
+                <Mail className="h-4 w-4" />
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleSignOut}
+                className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </SidebarFooter>

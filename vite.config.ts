@@ -25,9 +25,14 @@ export default defineConfig(({ mode }) => ({
         manualChunks: {
           vendor: ['react', 'react-dom'],
           ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          router: ['react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+          query: ['@tanstack/react-query'],
         },
       },
     },
     chunkSizeWarningLimit: 1000,
+    target: 'esnext',
+    minify: 'terser',
   },
 }));
