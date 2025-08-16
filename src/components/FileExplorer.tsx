@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Camera } from '@capacitor/camera';
+import { CameraResultType, CameraSource } from '@capacitor/camera';
 import { 
   FolderPlus, 
   FilePlus, 
@@ -15,7 +17,11 @@ import {
   ArrowLeft,
   MoreHorizontal,
   Edit2,
-  Trash2
+  Trash2,
+  Camera as CameraIcon,
+  Download,
+  Eye,
+  DownloadCloud
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -23,6 +29,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 interface Folder {
   id: string;
@@ -58,6 +72,10 @@ export default function FileExplorer() {
   const [newFolderName, setNewFolderName] = useState('');
   const [newNoteName, setNewNoteName] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
+  const [editingItem, setEditingItem] = useState<{ type: 'folder' | 'file', id: string, name: string } | null>(null);
+  const [newName, setNewName] = useState('');
+  const [viewingFile, setViewingFile] = useState<File | null>(null);
+  const [showFileViewer, setShowFileViewer] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -255,6 +273,179 @@ export default function FileExplorer() {
     }
   };
 
+  const handleCameraUpload = async () => {
+    try {
+      const image = await Camera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Camera,
+      });
+
+      if (image.dataUrl) {
+        // Convert data URL to blob
+        const response = await fetch(image.dataUrl);
+        const blob = await response.blob();
+        const file = new globalThis.File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+        // Upload the file
+        const fileExt = 'jpg';
+        const fileName = `${Date.now()}.${fileExt}`;
+        const filePath = `${(await supabase.auth.getUser()).data.user?.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('study-materials')
+          .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { error: dbError } = await supabase
+          .from('files')
+          .insert([{
+            name: `Photo ${new Date().toLocaleDateString()}`,
+            type: 'image',
+            file_path: filePath,
+            mime_type: 'image/jpeg',
+            file_size: file.size,
+            folder_id: currentFolderId,
+            user_id: (await supabase.auth.getUser()).data.user?.id
+          }]);
+
+        if (dbError) throw dbError;
+
+        loadFolderContents();
+        toast({
+          title: "Photo uploaded",
+          description: "Photo captured and uploaded successfully"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error taking photo",
+        description: "Could not capture photo. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const renameItem = async () => {
+    if (!editingItem || !newName.trim()) return;
+
+    try {
+      const table = editingItem.type === 'folder' ? 'folders' : 'files';
+      const { error } = await supabase
+        .from(table)
+        .update({ name: newName.trim() })
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
+
+      setEditingItem(null);
+      setNewName('');
+      loadFolderContents();
+      toast({
+        title: `${editingItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
+        description: `Renamed to "${newName}"`
+      });
+    } catch (error) {
+      toast({
+        title: "Error renaming item",
+        description: "Could not rename item. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const downloadFile = async (file: File) => {
+    try {
+      if (file.type === 'note') {
+        // Download note as text file
+        const blob = new Blob([file.content || ''], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${file.name}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else if (file.file_path) {
+        // Download uploaded file
+        const { data, error } = await supabase.storage
+          .from('study-materials')
+          .download(file.file_path);
+
+        if (error) throw error;
+
+        const url = URL.createObjectURL(data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      toast({
+        title: "Download started",
+        description: `Downloading "${file.name}"`
+      });
+    } catch (error) {
+      toast({
+        title: "Error downloading file",
+        description: "Could not download file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const viewFile = async (file: File) => {
+    try {
+      if (file.type === 'note') {
+        setViewingFile(file);
+        setShowFileViewer(true);
+      } else if (file.file_path) {
+        // Get signed URL for viewing
+        const { data, error } = await supabase.storage
+          .from('study-materials')
+          .createSignedUrl(file.file_path, 3600); // 1 hour expiry
+
+        if (error) throw error;
+
+        if (file.mime_type?.startsWith('image/')) {
+          setViewingFile({ ...file, content: data.signedUrl });
+          setShowFileViewer(true);
+        } else {
+          // Open in new tab for other file types
+          window.open(data.signedUrl, '_blank');
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Error viewing file",
+        description: "Could not view file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const downloadFolder = async (folder: Folder) => {
+    try {
+      // This is a simplified implementation - in a real app you'd want to zip all contents
+      toast({
+        title: "Feature coming soon",
+        description: "Folder download will be available in a future update",
+      });
+    } catch (error) {
+      toast({
+        title: "Error downloading folder",
+        description: "Could not download folder. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const deleteItem = async (type: 'folder' | 'file', id: string, name: string) => {
     try {
       if (type === 'folder') {
@@ -305,15 +496,15 @@ export default function FileExplorer() {
   return (
     <div className="w-full">
       {/* Action Buttons */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-4 sm:mb-6">
         <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-1 sm:gap-2 flex-1 sm:flex-none">
               <FolderPlus className="h-4 w-4" />
-              <span className="hidden sm:inline">New Folder</span>
+              <span className="text-xs sm:text-sm">Folder</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="mx-4">
+          <DialogContent className="mx-4 max-w-sm">
             <DialogHeader>
               <DialogTitle>Create New Folder</DialogTitle>
             </DialogHeader>
@@ -336,12 +527,12 @@ export default function FileExplorer() {
 
         <Dialog open={showNewNote} onOpenChange={setShowNewNote}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-1 sm:gap-2 flex-1 sm:flex-none">
               <FilePlus className="h-4 w-4" />
-              <span className="hidden sm:inline">New Note</span>
+              <span className="text-xs sm:text-sm">Note</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="mx-4 max-w-2xl">
+          <DialogContent className="mx-4 max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create New Note</DialogTitle>
             </DialogHeader>
@@ -355,7 +546,7 @@ export default function FileExplorer() {
                 placeholder="Note content"
                 value={newNoteContent}
                 onChange={(e) => setNewNoteContent(e.target.value)}
-                className="min-h-[200px]"
+                className="min-h-[150px] sm:min-h-[200px]"
               />
               <div className="flex space-x-2">
                 <Button onClick={createNote} className="flex-1">Create</Button>
@@ -367,10 +558,10 @@ export default function FileExplorer() {
           </DialogContent>
         </Dialog>
 
-        <Button variant="outline" size="sm" asChild className="gap-2">
+        <Button variant="outline" size="sm" asChild className="gap-1 sm:gap-2 flex-1 sm:flex-none">
           <label className="cursor-pointer">
             <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline">Upload File</span>
+            <span className="text-xs sm:text-sm">Upload</span>
             <input
               type="file"
               className="hidden"
@@ -379,13 +570,23 @@ export default function FileExplorer() {
             />
           </label>
         </Button>
+
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleCameraUpload}
+          className="gap-1 sm:gap-2 flex-1 sm:flex-none"
+        >
+          <CameraIcon className="h-4 w-4" />
+          <span className="text-xs sm:text-sm">Camera</span>
+        </Button>
       </div>
 
       {/* Breadcrumb Navigation */}
-      <div className="flex items-center gap-2 mb-6 text-sm">
+      <div className="flex items-center gap-1 sm:gap-2 mb-4 sm:mb-6 text-xs sm:text-sm overflow-x-auto">
         <button
           onClick={() => navigateToFolder(null)}
-          className="text-primary hover:underline"
+          className="text-primary hover:underline whitespace-nowrap"
         >
           Home
         </button>
@@ -394,7 +595,7 @@ export default function FileExplorer() {
             <span className="text-muted-foreground">/</span>
             <button
               onClick={() => navigateToFolder(folder.id)}
-              className="text-primary hover:underline"
+              className="text-primary hover:underline whitespace-nowrap max-w-[100px] sm:max-w-none truncate"
             >
               {folder.name}
             </button>
@@ -403,20 +604,20 @@ export default function FileExplorer() {
       </div>
 
       {/* Content Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
         {/* Navigate Up Button */}
         {currentFolderId && (
           <Card 
-            className="cursor-pointer hover:shadow-md transition-shadow"
+            className="cursor-pointer hover:shadow-md transition-shadow active:scale-95"
             onClick={navigateUp}
           >
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+            <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+              <div className="flex items-center justify-center">
+                <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
               </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm font-medium">Go Back</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <p className="text-xs sm:text-sm font-medium text-center">Go Back</p>
             </CardContent>
           </Card>
         )}
@@ -425,24 +626,43 @@ export default function FileExplorer() {
         {folders.map((folder) => (
           <Card 
             key={folder.id} 
-            className="cursor-pointer hover:shadow-md transition-shadow"
+            className="cursor-pointer hover:shadow-md transition-shadow active:scale-95"
             onClick={() => navigateToFolder(folder.id)}
           >
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
               <div className="flex items-center justify-between">
-                <Folder className="h-5 w-5 text-blue-500" />
+                <Folder className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-6 w-6 p-0 opacity-70 hover:opacity-100"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      <MoreHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingItem({ type: 'folder', id: folder.id, name: folder.name });
+                        setNewName(folder.name);
+                      }}
+                    >
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadFolder(folder);
+                      }}
+                    >
+                      <DownloadCloud className="h-4 w-4 mr-2" />
+                      Download
+                    </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -457,8 +677,8 @@ export default function FileExplorer() {
                 </DropdownMenu>
               </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm font-medium truncate">{folder.name}</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <p className="text-xs sm:text-sm font-medium truncate">{folder.name}</p>
               <p className="text-xs text-muted-foreground">Folder</p>
             </CardContent>
           </Card>
@@ -468,24 +688,57 @@ export default function FileExplorer() {
         {files.map((file) => (
           <Card 
             key={file.id}
-            className="hover:shadow-md transition-shadow"
+            className="hover:shadow-md transition-shadow active:scale-95 cursor-pointer"
+            onClick={() => viewFile(file)}
           >
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
               <div className="flex items-center justify-between">
-                <File className="h-5 w-5 text-gray-500" />
+                <File className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-6 w-6 p-0 opacity-70 hover:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      <MoreHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem 
-                      onClick={() => deleteItem('file', file.id, file.name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        viewFile(file);
+                      }}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingItem({ type: 'file', id: file.id, name: file.name });
+                        setNewName(file.name);
+                      }}
+                    >
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadFile(file);
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteItem('file', file.id, file.name);
+                      }}
                       className="text-destructive"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
@@ -495,8 +748,8 @@ export default function FileExplorer() {
                 </DropdownMenu>
               </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm font-medium truncate">{file.name}</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <p className="text-xs sm:text-sm font-medium truncate">{file.name}</p>
               <p className="text-xs text-muted-foreground capitalize">{file.type}</p>
               {file.file_size && (
                 <p className="text-xs text-muted-foreground">
@@ -516,6 +769,73 @@ export default function FileExplorer() {
           </div>
         )}
       </div>
+
+      {/* Rename Dialog */}
+      {editingItem && (
+        <Dialog open={!!editingItem} onOpenChange={() => setEditingItem(null)}>
+          <DialogContent className="mx-4 max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Rename {editingItem.type === 'folder' ? 'Folder' : 'File'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Input
+                placeholder="New name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && renameItem()}
+              />
+              <div className="flex space-x-2">
+                <Button onClick={renameItem} className="flex-1">Rename</Button>
+                <Button variant="outline" onClick={() => setEditingItem(null)} className="flex-1">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* File Viewer */}
+      {viewingFile && (
+        <Sheet open={showFileViewer} onOpenChange={setShowFileViewer}>
+          <SheetContent side="bottom" className="h-[90vh] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>{viewingFile.name}</SheetTitle>
+              <SheetDescription>
+                {viewingFile.type === 'note' ? 'Text Note' : 'File Content'}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6">
+              {viewingFile.type === 'note' ? (
+                <div className="prose prose-sm max-w-none">
+                  <pre className="whitespace-pre-wrap bg-muted p-4 rounded-md">
+                    {viewingFile.content || 'No content'}
+                  </pre>
+                </div>
+              ) : viewingFile.mime_type?.startsWith('image/') ? (
+                <div className="flex justify-center">
+                  <img 
+                    src={viewingFile.content || ''} 
+                    alt={viewingFile.name}
+                    className="max-w-full h-auto rounded-md"
+                  />
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <File className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">File preview not available</p>
+                  <Button 
+                    onClick={() => downloadFile(viewingFile)} 
+                    className="mt-4"
+                  >
+                    Download File
+                  </Button>
+                </div>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 }
