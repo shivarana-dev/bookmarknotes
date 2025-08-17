@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { BookOpen } from 'lucide-react';
+import { FcGoogle } from 'react-icons/fc';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
@@ -80,6 +80,24 @@ export default function AuthWrapper({
       });
     }
   };
+  const handleGoogleSignIn = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/`
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      toast({
+        title: "Authentication error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     toast({
@@ -120,6 +138,28 @@ export default function AuthWrapper({
                 {isSignUp ? 'Sign Up' : 'Sign In'}
               </Button>
             </form>
+            
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGoogleSignIn}
+              className="w-full"
+            >
+              <FcGoogle className="mr-2 h-4 w-4" />
+              Google
+            </Button>
+
             <div className="space-y-2 mt-4">
               <div className="text-center">
                 <Button variant="link" onClick={() => setIsSignUp(!isSignUp)} className="text-sm">
@@ -136,12 +176,5 @@ export default function AuthWrapper({
         </Card>
       </div>;
   }
-  return <div className="min-h-screen bg-background">
-      <header className="border-b">
-        
-      </header>
-      <main className="container mx-auto px-4 py-6">
-        {children}
-      </main>
-    </div>;
+  return <>{children}</>;
 }
