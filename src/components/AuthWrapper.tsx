@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { BookOpen } from 'lucide-react';
-import logoImage from '/lovable-uploads/8a59dbbc-df78-4864-8163-6aaf2c63c051.png';
+
 interface AuthWrapperProps {
   children: React.ReactNode;
 }
@@ -98,7 +98,7 @@ export default function AuthWrapper({
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
               <img 
-                src={logoImage} 
+                src="/lovable-uploads/8a59dbbc-df78-4864-8163-6aaf2c63c051.png" 
                 alt="Bookmark Logo" 
                 className="h-16 w-16 object-contain"
               />
