@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { Camera } from '@capacitor/camera';
 import { CameraResultType, CameraSource } from '@capacitor/camera';
 import { 
@@ -432,10 +434,22 @@ export default function FileExplorer() {
 
   const downloadFolder = async (folder: Folder) => {
     try {
-      // This is a simplified implementation - in a real app you'd want to zip all contents
+      const zip = new JSZip();
+      const loadingToast = toast({
+        title: "Preparing download...",
+        description: "Collecting folder contents"
+      });
+
+      // Recursively get all files in the folder
+      await addFolderToZip(zip, folder.id, folder.name);
+
+      // Generate and download the zip file
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${folder.name}.zip`);
+
       toast({
-        title: "Feature coming soon",
-        description: "Folder download will be available in a future update",
+        title: "Download complete",
+        description: `Downloaded "${folder.name}" as ZIP file`
       });
     } catch (error) {
       toast({
@@ -443,6 +457,53 @@ export default function FileExplorer() {
         description: "Could not download folder. Please try again.",
         variant: "destructive"
       });
+    }
+  };
+
+  const addFolderToZip = async (zip: JSZip, folderId: string, folderPath: string = '') => {
+    // Get all files in this folder
+    const { data: files, error: filesError } = await supabase
+      .from('files')
+      .select('*')
+      .eq('folder_id', folderId);
+
+    if (filesError) throw filesError;
+
+    // Add files to zip
+    for (const file of files || []) {
+      const filePath = folderPath ? `${folderPath}/${file.name}` : file.name;
+      
+      if (file.type === 'note') {
+        // Add note content as text file
+        zip.file(`${filePath}.txt`, file.content || '');
+      } else if (file.file_path) {
+        // Download and add uploaded file
+        try {
+          const { data: fileData, error: downloadError } = await supabase.storage
+            .from('study-materials')
+            .download(file.file_path);
+          
+          if (!downloadError && fileData) {
+            zip.file(filePath, fileData);
+          }
+        } catch (error) {
+          console.warn(`Could not download file: ${file.name}`, error);
+        }
+      }
+    }
+
+    // Get all subfolders
+    const { data: subfolders, error: subfoldersError } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('parent_id', folderId);
+
+    if (subfoldersError) throw subfoldersError;
+
+    // Recursively add subfolders
+    for (const subfolder of subfolders || []) {
+      const subfolderPath = folderPath ? `${folderPath}/${subfolder.name}` : subfolder.name;
+      await addFolderToZip(zip, subfolder.id, subfolderPath);
     }
   };
 
