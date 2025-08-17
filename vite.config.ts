@@ -33,6 +33,6 @@ export default defineConfig(({ mode }) => ({
     },
     chunkSizeWarningLimit: 1000,
     target: 'esnext',
-    minify: 'terser',
+    minify: mode === 'production' ? 'terser' : false,
   },
 }));
