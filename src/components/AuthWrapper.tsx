@@ -5,9 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { BookOpen } from 'lucide-react';
+import logoImage from '/lovable-uploads/8a59dbbc-df78-4864-8163-6aaf2c63c051.png';
 interface AuthWrapperProps {
   children: React.ReactNode;
 }
+
 export default function AuthWrapper({
   children
 }: AuthWrapperProps) {
@@ -16,9 +18,8 @@ export default function AuthWrapper({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const {
-    toast
-  } = useToast();
+  const [skipAuth, setSkipAuth] = useState(false);
+  const { toast } = useToast();
   useEffect(() => {
     // Get initial user
     supabase.auth.getUser().then(({
@@ -45,11 +46,13 @@ export default function AuthWrapper({
     e.preventDefault();
     try {
       if (isSignUp) {
-        const {
-          error
-        } = await supabase.auth.signUp({
+        const redirectUrl = `${window.location.origin}/`;
+        const { error } = await supabase.auth.signUp({
           email,
-          password
+          password,
+          options: {
+            emailRedirectTo: redirectUrl
+          }
         });
         if (error) throw error;
         toast({
@@ -89,14 +92,18 @@ export default function AuthWrapper({
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>;
   }
-  if (!user) {
+  if (!user && !skipAuth) {
     return <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <BookOpen className="h-12 w-12 text-primary" />
+              <img 
+                src={logoImage} 
+                alt="Bookmark Logo" 
+                className="h-16 w-16 object-contain"
+              />
             </div>
-            <CardTitle className="text-2xl">Study Shelf</CardTitle>
+            <CardTitle className="text-2xl">Bookmark</CardTitle>
             <CardDescription>
               Organize your study materials efficiently
             </CardDescription>
@@ -113,10 +120,17 @@ export default function AuthWrapper({
                 {isSignUp ? 'Sign Up' : 'Sign In'}
               </Button>
             </form>
-            <div className="text-center mt-4">
-              <Button variant="link" onClick={() => setIsSignUp(!isSignUp)} className="text-sm">
-                {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-              </Button>
+            <div className="space-y-2 mt-4">
+              <div className="text-center">
+                <Button variant="link" onClick={() => setIsSignUp(!isSignUp)} className="text-sm">
+                  {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+                </Button>
+              </div>
+              <div className="text-center">
+                <Button variant="outline" onClick={() => setSkipAuth(true)} className="text-sm w-full">
+                  Continue without signing in
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -173,12 +173,15 @@ export default function FileExplorer() {
     if (!newFolderName.trim()) return;
 
     try {
+      const user = await supabase.auth.getUser();
+      const userId = user.data.user?.id || 'anonymous';
+      
       const { error } = await supabase
         .from('folders')
         .insert([{
           name: newFolderName.trim(),
           parent_id: currentFolderId,
-          user_id: (await supabase.auth.getUser()).data.user?.id
+          user_id: userId
         }]);
 
       if (error) throw error;
@@ -203,14 +206,17 @@ export default function FileExplorer() {
     if (!newNoteName.trim()) return;
 
     try {
+      const user = await supabase.auth.getUser();
+      const userId = user.data.user?.id || 'anonymous';
+      
       const { error } = await supabase
         .from('files')
         .insert([{
           name: newNoteName.trim(),
           type: 'note',
           content: newNoteContent,
-        folder_id: currentFolderId,
-          user_id: (await supabase.auth.getUser()).data.user?.id
+          folder_id: currentFolderId,
+          user_id: userId
         }]);
 
       if (error) throw error;
@@ -237,9 +243,12 @@ export default function FileExplorer() {
     if (!file) return;
 
     try {
+      const user = await supabase.auth.getUser();
+      const userId = user.data.user?.id || 'anonymous';
+      
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${(await supabase.auth.getUser()).data.user?.id}/${fileName}`;
+      const filePath = `${userId}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('study-materials')
@@ -256,7 +265,7 @@ export default function FileExplorer() {
           mime_type: file.type,
           file_size: file.size,
           folder_id: currentFolderId,
-          user_id: (await supabase.auth.getUser()).data.user?.id
+          user_id: userId
         }]);
 
       if (dbError) throw dbError;
@@ -291,9 +300,12 @@ export default function FileExplorer() {
         const file = new globalThis.File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
 
         // Upload the file
+        const user = await supabase.auth.getUser();
+        const userId = user.data.user?.id || 'anonymous';
+        
         const fileExt = 'jpg';
         const fileName = `${Date.now()}.${fileExt}`;
-        const filePath = `${(await supabase.auth.getUser()).data.user?.id}/${fileName}`;
+        const filePath = `${userId}/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('study-materials')
@@ -310,7 +322,7 @@ export default function FileExplorer() {
             mime_type: 'image/jpeg',
             file_size: file.size,
             folder_id: currentFolderId,
-            user_id: (await supabase.auth.getUser()).data.user?.id
+            user_id: userId
           }]);
 
         if (dbError) throw dbError;
