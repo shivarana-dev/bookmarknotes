@@ -78,15 +78,68 @@ export default function FileExplorer() {
   const [newName, setNewName] = useState('');
   const [viewingFile, setViewingFile] = useState<File | null>(null);
   const [showFileViewer, setShowFileViewer] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
 
+  // Check authentication status
   useEffect(() => {
-    loadFolderContents();
-  }, [currentFolderId]);
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(!!user);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setIsAuthenticated(!!session?.user);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated !== null) {
+      loadFolderContents();
+    }
+  }, [currentFolderId, isAuthenticated]);
 
   const loadFolderContents = async () => {
     try {
       setLoading(true);
+      
+      if (isAuthenticated === false) {
+        // Load from localStorage for anonymous users
+        const localFolders = JSON.parse(localStorage.getItem('bookmark_folders') || '[]');
+        const localFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+        
+        const filteredFolders = localFolders.filter((folder: Folder) => 
+          currentFolderId ? folder.parent_id === currentFolderId : folder.parent_id === null
+        );
+        const filteredFiles = localFiles.filter((file: File) => 
+          currentFolderId ? file.folder_id === currentFolderId : file.folder_id === null
+        );
+        
+        setFolders(filteredFolders);
+        setFiles(filteredFiles);
+        
+        // Update breadcrumb path for local storage
+        if (currentFolderId) {
+          const folderData = localFolders.find((f: Folder) => f.id === currentFolderId);
+          if (folderData) {
+            const path = await buildPathLocal(folderData, localFolders);
+            setCurrentPath(path);
+          }
+        } else {
+          setCurrentPath([]);
+        }
+        
+        setLoading(false);
+        return;
+      }
+      
+      if (isAuthenticated === null) {
+        setLoading(false);
+        return;
+      }
       
       // Load folders - handle null parent_id properly
       let foldersQuery = supabase
@@ -169,10 +222,53 @@ export default function FileExplorer() {
     return path;
   };
 
+  const buildPathLocal = async (folder: Folder, allFolders: Folder[]): Promise<Folder[]> => {
+    const path = [folder];
+    let currentFolder = folder;
+    
+    while (currentFolder.parent_id) {
+      const parentData = allFolders.find(f => f.id === currentFolder.parent_id);
+      
+      if (parentData) {
+        path.unshift(parentData);
+        currentFolder = parentData;
+      } else {
+        break;
+      }
+    }
+    
+    return path;
+  };
+
   const createFolder = async () => {
     if (!newFolderName.trim()) return;
 
     try {
+      if (isAuthenticated === false) {
+        // Store in localStorage for anonymous users
+        const newFolder: Folder = {
+          id: crypto.randomUUID(),
+          name: newFolderName.trim(),
+          parent_id: currentFolderId,
+          user_id: 'anonymous',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        const existingFolders = JSON.parse(localStorage.getItem('bookmark_folders') || '[]');
+        existingFolders.push(newFolder);
+        localStorage.setItem('bookmark_folders', JSON.stringify(existingFolders));
+        
+        setNewFolderName('');
+        setShowNewFolder(false);
+        loadFolderContents();
+        toast({
+          title: "Folder created",
+          description: `Created folder "${newFolderName}"`
+        });
+        return;
+      }
+
       const user = await supabase.auth.getUser();
       const userId = user.data.user?.id || 'anonymous';
       
@@ -206,6 +302,37 @@ export default function FileExplorer() {
     if (!newNoteName.trim()) return;
 
     try {
+      if (isAuthenticated === false) {
+        // Store in localStorage for anonymous users
+        const newFile: File = {
+          id: crypto.randomUUID(),
+          name: newNoteName.trim(),
+          type: 'note',
+          content: newNoteContent,
+          file_path: null,
+          mime_type: null,
+          file_size: null,
+          folder_id: currentFolderId || null,
+          user_id: 'anonymous',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        const existingFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+        existingFiles.push(newFile);
+        localStorage.setItem('bookmark_files', JSON.stringify(existingFiles));
+        
+        setNewNoteName('');
+        setNewNoteContent('');
+        setShowNewNote(false);
+        loadFolderContents();
+        toast({
+          title: "Note created",
+          description: `Created note "${newNoteName}"`
+        });
+        return;
+      }
+
       const user = await supabase.auth.getUser();
       const userId = user.data.user?.id || 'anonymous';
       
@@ -243,6 +370,47 @@ export default function FileExplorer() {
     if (!file) return;
 
     try {
+      if (isAuthenticated === false) {
+        // For anonymous users, store as base64 in localStorage (limited to small files)
+        if (file.size > 1024 * 1024) { // 1MB limit for localStorage
+          toast({
+            title: "File too large",
+            description: "Anonymous users can only upload files up to 1MB. Please sign in for larger files.",
+            variant: "destructive"
+          });
+          return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = () => {
+          const newFile: File = {
+            id: crypto.randomUUID(),
+            name: file.name,
+            type: 'upload',
+            content: reader.result as string,
+            file_path: null,
+            mime_type: file.type,
+            file_size: file.size,
+            folder_id: currentFolderId || null,
+            user_id: 'anonymous',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          
+          const existingFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+          existingFiles.push(newFile);
+          localStorage.setItem('bookmark_files', JSON.stringify(existingFiles));
+          
+          loadFolderContents();
+          toast({
+            title: "File uploaded",
+            description: `Uploaded "${file.name}"`
+          });
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
       const user = await supabase.auth.getUser();
       const userId = user.data.user?.id || 'anonymous';
       
@@ -346,6 +514,25 @@ export default function FileExplorer() {
     if (!editingItem || !newName.trim()) return;
 
     try {
+      if (isAuthenticated === false) {
+        // Update localStorage for anonymous users
+        const storageKey = editingItem.type === 'folder' ? 'bookmark_folders' : 'bookmark_files';
+        const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        const updatedItems = items.map((item: any) => 
+          item.id === editingItem.id ? { ...item, name: newName.trim(), updated_at: new Date().toISOString() } : item
+        );
+        localStorage.setItem(storageKey, JSON.stringify(updatedItems));
+        
+        setEditingItem(null);
+        setNewName('');
+        loadFolderContents();
+        toast({
+          title: `${editingItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
+          description: `Renamed to "${newName}"`
+        });
+        return;
+      }
+
       const table = editingItem.type === 'folder' ? 'folders' : 'files';
       const { error } = await supabase
         .from(table)
@@ -521,6 +708,21 @@ export default function FileExplorer() {
 
   const deleteItem = async (type: 'folder' | 'file', id: string, name: string) => {
     try {
+      if (isAuthenticated === false) {
+        // Delete from localStorage for anonymous users
+        const storageKey = type === 'folder' ? 'bookmark_folders' : 'bookmark_files';
+        const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        const updatedItems = items.filter((item: any) => item.id !== id);
+        localStorage.setItem(storageKey, JSON.stringify(updatedItems));
+        
+        loadFolderContents();
+        toast({
+          title: `${type === 'folder' ? 'Folder' : 'File'} deleted`,
+          description: `Deleted "${name}"`
+        });
+        return;
+      }
+
       if (type === 'folder') {
         const { error } = await supabase
           .from('folders')
