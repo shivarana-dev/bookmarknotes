@@ -63,6 +63,15 @@ interface File {
   user_id: string;
 }
 
+// Simple UUID generator for browser compatibility
+const generateId = () => {
+  return 'xxxx-xxxx-4xxx-yxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 export default function FileExplorer() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -247,7 +256,7 @@ export default function FileExplorer() {
       if (isAuthenticated === false) {
         // Store in localStorage for anonymous users
         const newFolder: Folder = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           name: newFolderName.trim(),
           parent_id: currentFolderId,
           user_id: 'anonymous',
@@ -305,7 +314,7 @@ export default function FileExplorer() {
       if (isAuthenticated === false) {
         // Store in localStorage for anonymous users
         const newFile: File = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           name: newNoteName.trim(),
           type: 'note',
           content: newNoteContent,
@@ -384,7 +393,7 @@ export default function FileExplorer() {
         const reader = new FileReader();
         reader.onload = () => {
           const newFile: File = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             name: file.name,
             type: 'upload',
             content: reader.result as string,
