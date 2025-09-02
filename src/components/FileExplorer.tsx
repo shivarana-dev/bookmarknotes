@@ -104,6 +104,32 @@ export default function FileExplorer() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
 
+  // Sanitize name input to prevent path traversal and ensure valid names
+  const sanitizeName = (name: string): string => {
+    return name.trim().replace(/[/\\]/g, '').substring(0, 255);
+  };
+
+  const validateName = (name: string, type: string): boolean => {
+    const sanitized = sanitizeName(name);
+    if (!sanitized) {
+      toast({
+        title: "Error",
+        description: `${type} name cannot be empty`,
+        variant: "destructive"
+      });
+      return false;
+    }
+    if (sanitized !== name.trim()) {
+      toast({
+        title: "Error",
+        description: `${type} name cannot contain / or \\ characters`,
+        variant: "destructive"
+      });
+      return false;
+    }
+    return true;
+  };
+
   // Check authentication status
   useEffect(() => {
     const checkAuth = async () => {
@@ -264,14 +290,16 @@ export default function FileExplorer() {
   };
 
   const createFolder = async () => {
-    if (!newFolderName.trim()) return;
+    if (!validateName(newFolderName, "Folder")) return;
+
+    const sanitizedName = sanitizeName(newFolderName);
 
     try {
       if (isAuthenticated === false) {
         // Store in localStorage for anonymous users
         const newFolder: Folder = {
           id: generateId(),
-          name: newFolderName.trim(),
+          name: sanitizedName,
           parent_id: currentFolderId,
           user_id: 'anonymous',
           created_at: new Date().toISOString(),
@@ -287,7 +315,7 @@ export default function FileExplorer() {
         loadFolderContents();
         toast({
           title: "Folder created",
-          description: `Created folder "${newFolderName}"`
+          description: `Created folder "${sanitizedName}"`
         });
         return;
       }
@@ -298,7 +326,7 @@ export default function FileExplorer() {
       const { error } = await supabase
         .from('folders')
         .insert([{
-          name: newFolderName.trim(),
+          name: sanitizedName,
           parent_id: currentFolderId,
           user_id: userId
         }]);
@@ -310,7 +338,7 @@ export default function FileExplorer() {
       loadFolderContents();
       toast({
         title: "Folder created",
-        description: `Created folder "${newFolderName}"`
+        description: `Created folder "${sanitizedName}"`
       });
     } catch (error) {
       toast({
@@ -322,14 +350,16 @@ export default function FileExplorer() {
   };
 
   const createNote = async () => {
-    if (!newNoteName.trim()) return;
+    if (!validateName(newNoteName, "Note")) return;
+    
+    const sanitizedName = sanitizeName(newNoteName);
 
     try {
       if (isAuthenticated === false) {
         // Store in localStorage for anonymous users
         const newFile: File = {
           id: generateId(),
-          name: newNoteName.trim(),
+          name: sanitizedName,
           type: 'note',
           content: newNoteContent,
           file_path: null,
@@ -351,7 +381,7 @@ export default function FileExplorer() {
         loadFolderContents();
         toast({
           title: "Note created",
-          description: `Created note "${newNoteName}"`
+          description: `Created note "${sanitizedName}"`
         });
         return;
       }
@@ -362,7 +392,7 @@ export default function FileExplorer() {
       const { error } = await supabase
         .from('files')
         .insert([{
-          name: newNoteName.trim(),
+          name: sanitizedName,
           type: 'note',
           content: newNoteContent,
           folder_id: currentFolderId,
@@ -377,7 +407,7 @@ export default function FileExplorer() {
       loadFolderContents();
       toast({
         title: "Note created",
-        description: `Created note "${newNoteName}"`
+        description: `Created note "${sanitizedName}"`
       });
     } catch (error) {
       toast({
@@ -543,7 +573,10 @@ export default function FileExplorer() {
   };
 
   const renameItem = async () => {
-    if (!editingItem || !newName.trim()) return;
+    if (!editingItem) return;
+    if (!validateName(newName, editingItem.type === 'folder' ? 'Folder' : 'File')) return;
+
+    const sanitizedName = sanitizeName(newName);
 
     try {
       if (isAuthenticated === false) {
@@ -551,7 +584,7 @@ export default function FileExplorer() {
         const storageKey = editingItem.type === 'folder' ? 'bookmark_folders' : 'bookmark_files';
         const items = JSON.parse(localStorage.getItem(storageKey) || '[]');
         const updatedItems = items.map((item: any) => 
-          item.id === editingItem.id ? { ...item, name: newName.trim(), updated_at: new Date().toISOString() } : item
+          item.id === editingItem.id ? { ...item, name: sanitizedName, updated_at: new Date().toISOString() } : item
         );
         localStorage.setItem(storageKey, JSON.stringify(updatedItems));
         
@@ -560,7 +593,7 @@ export default function FileExplorer() {
         loadFolderContents();
         toast({
           title: `${editingItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
-          description: `Renamed to "${newName}"`
+          description: `Renamed to "${sanitizedName}"`
         });
         return;
       }
@@ -568,7 +601,7 @@ export default function FileExplorer() {
       const table = editingItem.type === 'folder' ? 'folders' : 'files';
       const { error } = await supabase
         .from(table)
-        .update({ name: newName.trim() })
+        .update({ name: sanitizedName })
         .eq('id', editingItem.id);
 
       if (error) throw error;
@@ -578,7 +611,7 @@ export default function FileExplorer() {
       loadFolderContents();
       toast({
         title: `${editingItem.type === 'folder' ? 'Folder' : 'File'} renamed`,
-        description: `Renamed to "${newName}"`
+        description: `Renamed to "${sanitizedName}"`
       });
     } catch (error) {
       toast({
@@ -665,6 +698,15 @@ export default function FileExplorer() {
 
   const downloadFolder = async (folder: Folder) => {
     try {
+      if (isAuthenticated === false) {
+        toast({
+          title: "Feature not available",
+          description: "Folder downloads are not available for anonymous users. Please sign in to access this feature.",
+          variant: "destructive"
+        });
+        return;
+      }
+
       const zip = new JSZip();
       const loadingToast = toast({
         title: "Preparing download...",
@@ -692,6 +734,9 @@ export default function FileExplorer() {
   };
 
   const addFolderToZip = async (zip: JSZip, folderId: string, folderPath: string = '') => {
+    // Skip for anonymous users - should not reach here due to guard above
+    if (isAuthenticated === false) return;
+
     // Get all files in this folder
     const { data: files, error: filesError } = await supabase
       .from('files')
