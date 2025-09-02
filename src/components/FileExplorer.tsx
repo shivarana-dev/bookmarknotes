@@ -8,8 +8,22 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Camera } from '@capacitor/camera';
-import { CameraResultType, CameraSource } from '@capacitor/camera';
+// Capacitor Camera - only import if available (mobile environment)
+let Camera: any = null;
+let CameraResultType: any = null;
+let CameraSource: any = null;
+
+try {
+  if (typeof window !== 'undefined' && (window as any).Capacitor) {
+    import('@capacitor/camera').then(module => {
+      Camera = module.Camera;
+      CameraResultType = module.CameraResultType;
+      CameraSource = module.CameraSource;
+    });
+  }
+} catch (error) {
+  console.warn('Capacitor Camera not available in web environment');
+}
 import { 
   FolderPlus, 
   FilePlus, 
@@ -462,6 +476,15 @@ export default function FileExplorer() {
   };
 
   const handleCameraUpload = async () => {
+    if (!Camera || !CameraResultType || !CameraSource) {
+      toast({
+        title: "Camera not available",
+        description: "Camera functionality is only available on mobile devices.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
       const image = await Camera.getPhoto({
         quality: 90,
