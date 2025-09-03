@@ -522,13 +522,17 @@ export default function FileExplorer() {
   };
 
   const handleCameraUpload = async () => {
+    // Always try to initialize camera first
     if (!Camera || !CameraResultType || !CameraSource) {
-      toast({
-        title: "Camera not available",
-        description: "Camera functionality is only available on mobile devices.",
-        variant: "destructive"
-      });
-      return;
+      const available = await initializeCamera();
+      if (!available) {
+        toast({
+          title: "Camera not available",
+          description: "Could not access camera. Please check camera permissions and try again.",
+          variant: "destructive"
+        });
+        return;
+      }
     }
 
     try {
