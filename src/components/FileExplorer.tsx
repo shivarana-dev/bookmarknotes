@@ -104,6 +104,22 @@ export default function FileExplorer() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
 
+  // Initialize camera function
+  const initializeCamera = async () => {
+    try {
+      if (typeof window !== 'undefined' && (window as any).Capacitor) {
+        const module = await import('@capacitor/camera');
+        Camera = module.Camera;
+        CameraResultType = module.CameraResultType;
+        CameraSource = module.CameraSource;
+        return true;
+      }
+    } catch (error) {
+      console.warn('Capacitor Camera not available in web environment');
+    }
+    return false;
+  };
+
   // Sanitize name input to prevent path traversal and ensure valid names
   const sanitizeName = (name: string): string => {
     return name.trim().replace(/[/\\]/g, '').substring(0, 255);
