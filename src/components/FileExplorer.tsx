@@ -8,22 +8,6 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-// Capacitor Camera - only import if available (mobile environment)
-let Camera: any = null;
-let CameraResultType: any = null;
-let CameraSource: any = null;
-
-try {
-  if (typeof window !== 'undefined' && (window as any).Capacitor) {
-    import('@capacitor/camera').then(module => {
-      Camera = module.Camera;
-      CameraResultType = module.CameraResultType;
-      CameraSource = module.CameraSource;
-    });
-  }
-} catch (error) {
-  console.warn('Capacitor Camera not available in web environment');
-}
 import { 
   FolderPlus, 
   FilePlus, 
@@ -103,22 +87,6 @@ export default function FileExplorer() {
   const [showFileViewer, setShowFileViewer] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
-
-  // Initialize camera function
-  const initializeCamera = async () => {
-    try {
-      if (typeof window !== 'undefined' && (window as any).Capacitor) {
-        const module = await import('@capacitor/camera');
-        Camera = module.Camera;
-        CameraResultType = module.CameraResultType;
-        CameraSource = module.CameraSource;
-        return true;
-      }
-    } catch (error) {
-      console.warn('Capacitor Camera not available in web environment');
-    }
-    return false;
-  };
 
   // Sanitize name input to prevent path traversal and ensure valid names
   const sanitizeName = (name: string): string => {
@@ -522,71 +490,138 @@ export default function FileExplorer() {
   };
 
   const handleCameraUpload = async () => {
-    // Always try to initialize camera first
-    if (!Camera || !CameraResultType || !CameraSource) {
-      const available = await initializeCamera();
-      if (!available) {
+    try {
+      // Check if camera is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast({
           title: "Camera not available",
-          description: "Could not access camera. Please check camera permissions and try again.",
+          description: "Camera functionality is not supported in this browser.",
           variant: "destructive"
         });
         return;
       }
-    }
 
-    try {
-      const image = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
+      // Get camera stream
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } // Use back camera if available
       });
 
-      if (image.dataUrl) {
-        // Convert data URL to blob
-        const response = await fetch(image.dataUrl);
-        const blob = await response.blob();
-        const file = new globalThis.File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      // Create video element to capture frame
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
 
-        // Upload the file
-        const user = await supabase.auth.getUser();
-        const userId = user.data.user?.id || 'anonymous';
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          video.play();
+          resolve(void 0);
+        };
+      });
+
+      // Create canvas to capture frame
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      // Draw current frame to canvas
+      context?.drawImage(video, 0, 0);
+      
+      // Stop camera stream
+      stream.getTracks().forEach(track => track.stop());
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          resolve(blob!);
+        }, 'image/jpeg', 0.9);
+      });
+
+      const file = new globalThis.File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+      if (isAuthenticated === false) {
+        // For anonymous users, store as base64 in localStorage
+        if (file.size > 1024 * 1024) { // 1MB limit for localStorage
+          toast({
+            title: "Photo too large",
+            description: "Anonymous users can only upload photos up to 1MB. Please sign in for larger files.",
+            variant: "destructive"
+          });
+          return;
+        }
         
-        const fileExt = 'jpg';
-        const fileName = `${Date.now()}.${fileExt}`;
-        const filePath = `${userId}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('study-materials')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { error: dbError } = await supabase
-          .from('files')
-          .insert([{
+        const reader = new FileReader();
+        reader.onload = () => {
+          const newFile: File = {
+            id: generateId(),
             name: `Photo ${new Date().toLocaleDateString()}`,
-            type: 'image',
-            file_path: filePath,
+            type: 'upload',
+            content: reader.result as string,
+            file_path: null,
             mime_type: 'image/jpeg',
             file_size: file.size,
-            folder_id: currentFolderId,
-            user_id: userId
-          }]);
-
-        if (dbError) throw dbError;
-
-        loadFolderContents();
-        toast({
-          title: "Photo uploaded",
-          description: "Photo captured and uploaded successfully"
-        });
+            folder_id: currentFolderId || null,
+            user_id: 'anonymous',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          
+          const existingFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+          existingFiles.push(newFile);
+          localStorage.setItem('bookmark_files', JSON.stringify(existingFiles));
+          
+          loadFolderContents();
+          toast({
+            title: "Photo captured",
+            description: "Photo captured and saved successfully"
+          });
+        };
+        reader.readAsDataURL(file);
+        return;
       }
-    } catch (error) {
+
+      // Upload the file for authenticated users
+      const user = await supabase.auth.getUser();
+      const userId = user.data.user?.id || 'anonymous';
+      
+      const fileExt = 'jpg';
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${userId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('study-materials')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { error: dbError } = await supabase
+        .from('files')
+        .insert([{
+          name: `Photo ${new Date().toLocaleDateString()}`,
+          type: 'upload',
+          file_path: filePath,
+          mime_type: 'image/jpeg',
+          file_size: file.size,
+          folder_id: currentFolderId,
+          user_id: userId
+        }]);
+
+      if (dbError) throw dbError;
+
+      loadFolderContents();
       toast({
-        title: "Error taking photo",
-        description: "Could not capture photo. Please try again.",
+        title: "Photo captured",
+        description: "Photo captured and uploaded successfully"
+      });
+
+    } catch (error) {
+      console.error('Camera error:', error);
+      toast({
+        title: "Camera error",
+        description: error instanceof Error ? error.message : "Could not access camera. Please try again.",
         variant: "destructive"
       });
     }
@@ -655,7 +690,15 @@ export default function FileExplorer() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-      } else if (file.file_path) {
+      } else if (file.content && isAuthenticated === false) {
+        // For anonymous users with base64 content
+        const a = document.createElement('a');
+        a.href = file.content;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else if (file.file_path && isAuthenticated !== false) {
         // Download uploaded file
         const { data, error } = await supabase.storage
           .from('study-materials')
@@ -691,7 +734,7 @@ export default function FileExplorer() {
       if (file.type === 'note') {
         setViewingFile(file);
         setShowFileViewer(true);
-      } else if (file.file_path) {
+      } else if (file.file_path && isAuthenticated !== false) {
         // Get signed URL for viewing
         const { data, error } = await supabase.storage
           .from('study-materials')
@@ -705,6 +748,12 @@ export default function FileExplorer() {
         } else {
           // Open in new tab for other file types
           window.open(data.signedUrl, '_blank');
+        }
+      } else if (file.content && isAuthenticated === false) {
+        // For anonymous users, show the base64 content directly
+        if (file.mime_type?.startsWith('image/')) {
+          setViewingFile(file);
+          setShowFileViewer(true);
         }
       }
     } catch (error) {
