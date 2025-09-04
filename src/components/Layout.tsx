@@ -29,8 +29,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, []);
 
   const showAuthDialog = () => {
-    // Force show auth dialog by clearing skipAuth
-    window.location.reload();
+    // Trigger auth dialog
+    localStorage.setItem('show-auth', 'true');
+    window.dispatchEvent(new CustomEvent('show-auth'));
   };
 
   return (

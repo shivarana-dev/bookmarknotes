@@ -18,7 +18,10 @@ export default function AuthWrapper({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [skipAuth, setSkipAuth] = useState(true); // Default to anonymous access
+  const [skipAuth, setSkipAuth] = useState(() => {
+    // Check if user wants to sign in (from localStorage or URL param)
+    return !localStorage.getItem('show-auth') && !window.location.search.includes('auth=true');
+  });
   const { toast } = useToast();
   useEffect(() => {
     // Get initial user
@@ -39,8 +42,23 @@ export default function AuthWrapper({
     } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
+      // Clear auth flag when user signs in
+      if (session?.user) {
+        localStorage.removeItem('show-auth');
+        setSkipAuth(true);
+      }
     });
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Listen for auth trigger from other components
+  useEffect(() => {
+    const handleShowAuth = () => {
+      setSkipAuth(false);
+    };
+    
+    window.addEventListener('show-auth', handleShowAuth);
+    return () => window.removeEventListener('show-auth', handleShowAuth);
   }, []);
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();

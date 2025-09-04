@@ -26,7 +26,9 @@ export function MobileHeader() {
   };
 
   const showAuthDialog = () => {
-    window.location.reload();
+    // Trigger auth dialog
+    localStorage.setItem('show-auth', 'true');
+    window.dispatchEvent(new CustomEvent('show-auth'));
   };
 
   return (
