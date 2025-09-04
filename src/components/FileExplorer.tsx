@@ -47,7 +47,7 @@ interface Folder {
   user_id: string;
 }
 
-interface File {
+interface FileItem {
   id: string;
   name: string;
   type: string;
@@ -72,7 +72,7 @@ const generateId = () => {
 
 export default function FileExplorer() {
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +83,7 @@ export default function FileExplorer() {
   const [newNoteContent, setNewNoteContent] = useState('');
   const [editingItem, setEditingItem] = useState<{ type: 'folder' | 'file', id: string, name: string } | null>(null);
   const [newName, setNewName] = useState('');
-  const [viewingFile, setViewingFile] = useState<File | null>(null);
+  const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const [showFileViewer, setShowFileViewer] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
@@ -147,7 +147,7 @@ export default function FileExplorer() {
         const filteredFolders = localFolders.filter((folder: Folder) => 
           currentFolderId ? folder.parent_id === currentFolderId : folder.parent_id === null
         );
-        const filteredFiles = localFiles.filter((file: File) => 
+        const filteredFiles = localFiles.filter((file: FileItem) => 
           currentFolderId ? file.folder_id === currentFolderId : file.folder_id === null
         );
         
@@ -341,7 +341,7 @@ export default function FileExplorer() {
     try {
       if (isAuthenticated === false) {
         // Store in localStorage for anonymous users
-        const newFile: File = {
+        const newFile: FileItem = {
           id: generateId(),
           name: sanitizedName,
           type: 'note',
@@ -403,33 +403,33 @@ export default function FileExplorer() {
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+    const browserFiles = event.target.files;
+    if (!browserFiles || browserFiles.length === 0) return;
 
     // Process multiple files
-    const fileArray = Array.from(files);
+    const fileArray = Array.from(browserFiles);
     let successCount = 0;
     let errorCount = 0;
 
-    for (const file of fileArray) {
+    for (const browserFile of fileArray) {
       try {
         if (isAuthenticated === false) {
           // For anonymous users, store as base64 in localStorage (limited to small files)
-          if (file.size > 1024 * 1024) { // 1MB limit for localStorage
+          if (browserFile.size > 1024 * 1024) { // 1MB limit for localStorage
             errorCount++;
             continue;
           }
           
           const reader = new FileReader();
           reader.onload = () => {
-            const newFile: File = {
+            const newFile: FileItem = {
               id: generateId(),
-              name: file.name,
+              name: browserFile.name,
               type: 'upload',
               content: reader.result as string,
               file_path: null,
-              mime_type: file.type,
-              file_size: file.size,
+              mime_type: browserFile.type,
+              file_size: browserFile.size,
               folder_id: currentFolderId || null,
               user_id: 'anonymous',
               created_at: new Date().toISOString(),
@@ -451,29 +451,29 @@ export default function FileExplorer() {
               }
             }
           };
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(browserFile);
         } else {
           const user = await supabase.auth.getUser();
           const userId = user.data.user?.id || 'anonymous';
           
-          const fileExt = file.name.split('.').pop();
+          const fileExt = browserFile.name.split('.').pop();
           const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
           const filePath = `${userId}/${fileName}`;
 
           const { error: uploadError } = await supabase.storage
             .from('study-materials')
-            .upload(filePath, file);
+            .upload(filePath, browserFile);
 
           if (uploadError) throw uploadError;
 
           const { error: dbError } = await supabase
             .from('files')
             .insert([{
-              name: file.name,
+              name: browserFile.name,
               type: 'upload',
               file_path: filePath,
-              mime_type: file.type,
-              file_size: file.size,
+              mime_type: browserFile.type,
+              file_size: browserFile.size,
               folder_id: currentFolderId,
               user_id: userId
             }]);
@@ -543,13 +543,13 @@ export default function FileExplorer() {
     }
   };
 
-  const processUploadedFile = async (file: File) => {
+  const processUploadedFile = async (browserFile: File) => {
     try {
-      const fileName = file.name || `photo_${Date.now()}.jpg`;
+      const fileName = browserFile.name || `photo_${Date.now()}.jpg`;
 
       if (isAuthenticated === false) {
         // For anonymous users, store as base64 in localStorage
-        if (file.size > 1024 * 1024) { // 1MB limit for localStorage
+        if (browserFile.size > 1024 * 1024) { // 1MB limit for localStorage
           toast({
             title: "Photo too large",
             description: "Anonymous users can only upload photos up to 1MB. Please sign in for larger files.",
@@ -560,14 +560,14 @@ export default function FileExplorer() {
         
         const reader = new FileReader();
         reader.onload = () => {
-          const newFile: File = {
+          const newFile: FileItem = {
             id: generateId(),
             name: fileName,
             type: 'upload',
             content: reader.result as string,
             file_path: null,
-            mime_type: file.type,
-            file_size: file.size,
+            mime_type: browserFile.type,
+            file_size: browserFile.size,
             folder_id: currentFolderId || null,
             user_id: 'anonymous',
             created_at: new Date().toISOString(),
@@ -584,7 +584,7 @@ export default function FileExplorer() {
             description: `"${fileName}" uploaded successfully`
           });
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(browserFile);
         return;
       }
 
@@ -592,13 +592,13 @@ export default function FileExplorer() {
       const user = await supabase.auth.getUser();
       const userId = user.data.user?.id || 'anonymous';
       
-      const fileExt = file.name.split('.').pop() || 'jpg';
+      const fileExt = browserFile.name.split('.').pop() || 'jpg';
       const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
       const filePath = `${userId}/${uniqueFileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('study-materials')
-        .upload(filePath, file);
+        .upload(filePath, browserFile);
 
       if (uploadError) throw uploadError;
 
@@ -608,8 +608,8 @@ export default function FileExplorer() {
           name: fileName,
           type: 'upload',
           file_path: filePath,
-          mime_type: file.type,
-          file_size: file.size,
+          mime_type: browserFile.type,
+          file_size: browserFile.size,
           folder_id: currentFolderId,
           user_id: userId
         }]);
@@ -676,7 +676,7 @@ export default function FileExplorer() {
     }
   };
 
-  const downloadFile = async (file: File) => {
+  const downloadFile = async (file: FileItem) => {
     try {
       if (file.type === 'note') {
         // Download note as text file
@@ -728,7 +728,7 @@ export default function FileExplorer() {
     }
   };
 
-  const viewFile = async (file: File) => {
+  const viewFile = async (file: FileItem) => {
     try {
       if (file.type === 'note') {
         setViewingFile(file);
