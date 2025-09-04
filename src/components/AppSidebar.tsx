@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Home,
@@ -6,6 +6,7 @@ import {
   FileText,
   Shield,
   LogOut,
+  LogIn,
   Mail,
   Bookmark as BookmarkIcon
 } from 'lucide-react';
@@ -41,6 +42,19 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const { toast } = useToast();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -56,6 +70,11 @@ export function AppSidebar() {
         description: "Signed out successfully.",
       });
     }
+  };
+
+  const showAuthDialog = () => {
+    localStorage.setItem('show-auth', 'true');
+    window.dispatchEvent(new CustomEvent('show-auth'));
   };
 
   const isActive = (path: string) => location.pathname === path;
@@ -148,14 +167,25 @@ export function AppSidebar() {
                 Contact Us
               </Button>
               
-              <Button
-                variant="ghost"
-                onClick={handleSignOut}
-                className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </Button>
+              {user ? (
+                <Button
+                  variant="ghost"
+                  onClick={handleSignOut}
+                  className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  onClick={showAuthDialog}
+                  className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Sign In
+                </Button>
+              )}
             </>
           )}
           
@@ -171,15 +201,27 @@ export function AppSidebar() {
                 <Mail className="h-4 w-4" />
               </Button>
               
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleSignOut}
-                className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
-                title="Sign Out"
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
+              {user ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleSignOut}
+                  className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
+                  title="Sign Out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={showAuthDialog}
+                  className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
+                  title="Sign In"
+                >
+                  <LogIn className="h-4 w-4" />
+                </Button>
+              )}
             </>
           )}
         </div>

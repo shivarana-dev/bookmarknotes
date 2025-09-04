@@ -184,6 +184,11 @@ export default function AuthWrapper({
                   {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
                 </Button>
               </div>
+              <div className="text-center">
+                <Button variant="link" onClick={() => setSkipAuth(true)} className="text-sm">
+                  Continue without signing in
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

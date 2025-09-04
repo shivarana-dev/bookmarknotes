@@ -21,7 +21,13 @@ import {
   Camera as CameraIcon,
   Download,
   Eye,
-  DownloadCloud
+  DownloadCloud,
+  CheckSquare,
+  Square,
+  Trash,
+  Edit,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -37,6 +43,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import { ImageThumbnail } from '@/components/ImageThumbnail';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface Folder {
   id: string;
@@ -61,14 +69,14 @@ interface FileItem {
   user_id: string;
 }
 
-// Simple UUID generator for browser compatibility
-const generateId = () => {
-  return 'xxxx-xxxx-4xxx-yxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-};
+  // Simple UUID generator for browser compatibility
+  const generateId = () => {
+    return 'xxxx-xxxx-4xxx-yxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
 
 export default function FileExplorer() {
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -86,6 +94,11 @@ export default function FileExplorer() {
   const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const [showFileViewer, setShowFileViewer] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const { toast } = useToast();
 
   // Sanitize name input to prevent path traversal and ensure valid names
@@ -728,8 +741,12 @@ export default function FileExplorer() {
     }
   };
 
-  const viewFile = async (file: FileItem) => {
+  const viewFile = async (file: FileItem, index?: number) => {
     try {
+      if (index !== undefined) {
+        setCurrentFileIndex(index);
+      }
+      
       if (file.type === 'note') {
         setViewingFile(file);
         setShowFileViewer(true);
@@ -741,7 +758,7 @@ export default function FileExplorer() {
 
         if (error) throw error;
 
-        if (file.mime_type?.startsWith('image/')) {
+        if (file.mime_type?.startsWith('image/') || file.mime_type === 'application/pdf') {
           setViewingFile({ ...file, content: data.signedUrl });
           setShowFileViewer(true);
         } else {
@@ -759,6 +776,71 @@ export default function FileExplorer() {
       toast({
         title: "Error viewing file",
         description: "Could not view file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Bulk operations
+  const toggleSelection = (id: string, type: 'folder' | 'file') => {
+    const key = `${type}-${id}`;
+    const newSelection = new Set(selectedItems);
+    if (newSelection.has(key)) {
+      newSelection.delete(key);
+    } else {
+      newSelection.add(key);
+    }
+    setSelectedItems(newSelection);
+  };
+
+  const selectAll = () => {
+    const allItems = new Set<string>();
+    folders.forEach(folder => allItems.add(`folder-${folder.id}`));
+    files.forEach(file => allItems.add(`file-${file.id}`));
+    setSelectedItems(allItems);
+  };
+
+  const clearSelection = () => {
+    setSelectedItems(new Set());
+    setSelectionMode(false);
+  };
+
+  const deleteSelected = async () => {
+    const selectedFolders = Array.from(selectedItems)
+      .filter(item => item.startsWith('folder-'))
+      .map(item => item.replace('folder-', ''));
+    
+    const selectedFiles = Array.from(selectedItems)
+      .filter(item => item.startsWith('file-'))
+      .map(item => item.replace('file-', ''));
+
+    try {
+      // Delete folders
+      for (const folderId of selectedFolders) {
+        const folder = folders.find(f => f.id === folderId);
+        if (folder) {
+          await deleteItem('folder', folderId, folder.name);
+        }
+      }
+
+      // Delete files
+      for (const fileId of selectedFiles) {
+        const file = files.find(f => f.id === fileId);
+        if (file) {
+          await deleteItem('file', fileId, file.name);
+        }
+      }
+
+      clearSelection();
+      loadFolderContents();
+      toast({
+        title: "Items deleted",
+        description: `Deleted ${selectedFolders.length + selectedFiles.length} item(s)`
+      });
+    } catch (error) {
+      toast({
+        title: "Error deleting items",
+        description: "Could not delete some items. Please try again.",
         variant: "destructive"
       });
     }
@@ -935,6 +1017,41 @@ export default function FileExplorer() {
           </div>
         )}
         
+        {/* Selection Mode Controls */}
+        {(selectedItems.size > 0 || selectionMode) && (
+          <div className="flex flex-wrap gap-2 mb-4 p-3 bg-muted rounded-lg">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={selectAll}
+              className="gap-2"
+            >
+              <CheckSquare className="h-4 w-4" />
+              Select All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearSelection}
+              className="gap-2"
+            >
+              <Square className="h-4 w-4" />
+              Clear ({selectedItems.size})
+            </Button>
+            {selectedItems.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={deleteSelected}
+                className="gap-2"
+              >
+                <Trash className="h-4 w-4" />
+                Delete Selected
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
         <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
           <DialogTrigger asChild>
@@ -1019,6 +1136,16 @@ export default function FileExplorer() {
           <CameraIcon className="h-4 w-4" />
           <span className="text-xs sm:text-sm">Camera</span>
         </Button>
+        
+        <Button
+          variant={selectionMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setSelectionMode(!selectionMode)}
+          className="gap-1 sm:gap-2 flex-1 sm:flex-none"
+        >
+          <CheckSquare className="h-4 w-4" />
+          <span className="text-xs sm:text-sm">Select</span>
+        </Button>
         </div>
       </div>
 
@@ -1046,16 +1173,35 @@ export default function FileExplorer() {
       {/* Content Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
         {/* Folders */}
-        {folders.map((folder) => (
-          <Card 
-            key={folder.id} 
-            className="cursor-pointer hover:shadow-md transition-shadow active:scale-95"
-            onClick={() => navigateToFolder(folder.id)}
-          >
-            <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
-              <div className="flex items-center justify-between">
-                <Folder className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
-                <DropdownMenu>
+        {folders.map((folder) => {
+          const isSelected = selectedItems.has(`folder-${folder.id}`);
+          return (
+            <Card 
+              key={folder.id} 
+              className={`cursor-pointer hover:shadow-md transition-shadow active:scale-95 ${
+                isSelected ? 'ring-2 ring-primary' : ''
+              }`}
+              onClick={() => {
+                if (selectionMode) {
+                  toggleSelection(folder.id, 'folder');
+                } else {
+                  navigateToFolder(folder.id);
+                }
+              }}
+            >
+              <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {selectionMode && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelection(folder.id, 'folder')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    <Folder className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+                  </div>
+                  <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
@@ -1105,19 +1251,53 @@ export default function FileExplorer() {
               <p className="text-xs text-muted-foreground">Folder</p>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
 
         {/* Files */}
-        {files.map((file) => (
-          <Card 
-            key={file.id}
-            className="hover:shadow-md transition-shadow active:scale-95 cursor-pointer"
-            onClick={() => viewFile(file)}
-          >
-            <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
-              <div className="flex items-center justify-between">
-                <File className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
-                <DropdownMenu>
+        {files.map((file, index) => {
+          const isSelected = selectedItems.has(`file-${file.id}`);
+          return (
+            <Card 
+              key={file.id}
+              className={`hover:shadow-md transition-shadow active:scale-95 cursor-pointer ${
+                isSelected ? 'ring-2 ring-primary' : ''
+              }`}
+              onClick={() => {
+                if (selectionMode) {
+                  toggleSelection(file.id, 'file');
+                } else {
+                  viewFile(file, index);
+                }
+              }}
+            >
+              <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2 relative">
+                {/* Image Thumbnail */}
+                {file.mime_type?.startsWith('image/') && (
+                  <div className="absolute inset-0 rounded-t-lg overflow-hidden">
+                    <ImageThumbnail
+                      filePath={file.file_path || ''}
+                      fileName={file.name}
+                      mimeType={file.mime_type}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/30" />
+                  </div>
+                )}
+                <div className={`flex items-center justify-between relative z-10 ${
+                  file.mime_type?.startsWith('image/') ? 'text-white' : ''
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {selectionMode && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelection(file.id, 'file')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    <File className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
+                  </div>
+                  <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
@@ -1181,7 +1361,8 @@ export default function FileExplorer() {
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
 
         {/* Empty State */}
         {folders.length === 0 && files.length === 0 && !loading && (
@@ -1221,12 +1402,75 @@ export default function FileExplorer() {
       {/* File Viewer */}
       {viewingFile && (
         <Sheet open={showFileViewer} onOpenChange={setShowFileViewer}>
-          <SheetContent side="bottom" className="h-[90vh] overflow-y-auto">
+          <SheetContent 
+            side="bottom" 
+            className="h-[90vh] overflow-y-auto"
+            onTouchStart={(e) => {
+              setTouchEnd(null);
+              setTouchStart(e.targetTouches[0].clientX);
+            }}
+            onTouchMove={(e) => {
+              setTouchEnd(e.targetTouches[0].clientX);
+            }}
+            onTouchEnd={() => {
+              if (!touchStart || !touchEnd) return;
+              
+              const distance = touchStart - touchEnd;
+              const isLeftSwipe = distance > 50;
+              const isRightSwipe = distance < -50;
+
+              if (isLeftSwipe && currentFileIndex < files.length - 1) {
+                setCurrentFileIndex(currentFileIndex + 1);
+                setViewingFile(files[currentFileIndex + 1]);
+              }
+              if (isRightSwipe && currentFileIndex > 0) {
+                setCurrentFileIndex(currentFileIndex - 1);
+                setViewingFile(files[currentFileIndex - 1]);
+              }
+            }}
+          >
             <SheetHeader>
-              <SheetTitle>{viewingFile.name}</SheetTitle>
-              <SheetDescription>
-                {viewingFile.type === 'note' ? 'Text Note' : 'File Content'}
-              </SheetDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <SheetTitle>{viewingFile.name}</SheetTitle>
+                  <SheetDescription>
+                    {viewingFile.type === 'note' ? 'Text Note' : 'File Content'}
+                    {files.length > 1 && ` (${currentFileIndex + 1}/${files.length})`}
+                  </SheetDescription>
+                </div>
+                {files.length > 1 && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (currentFileIndex > 0) {
+                          const newIndex = currentFileIndex - 1;
+                          setCurrentFileIndex(newIndex);
+                          setViewingFile(files[newIndex]);
+                        }
+                      }}
+                      disabled={currentFileIndex === 0}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (currentFileIndex < files.length - 1) {
+                          const newIndex = currentFileIndex + 1;
+                          setCurrentFileIndex(newIndex);
+                          setViewingFile(files[newIndex]);
+                        }
+                      }}
+                      disabled={currentFileIndex === files.length - 1}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </SheetHeader>
             <div className="mt-6">
               {viewingFile.type === 'note' ? (
