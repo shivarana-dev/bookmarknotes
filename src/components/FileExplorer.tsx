@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import jsPDF from 'jspdf';
 import { 
   FolderPlus, 
   FilePlus, 
@@ -27,7 +28,10 @@ import {
   Trash,
   Edit,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileText,
+  Crop,
+  FileDown
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -44,6 +48,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { ImageThumbnail } from '@/components/ImageThumbnail';
+import { ImageCropDialog } from '@/components/ImageCropDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 
 interface Folder {
@@ -99,6 +104,10 @@ export default function FileExplorer() {
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
+  const [showCropDialog, setShowCropDialog] = useState(false);
+  const [cropImageUrl, setCropImageUrl] = useState<string>('');
+  const [editingNote, setEditingNote] = useState<FileItem | null>(null);
+  const [editNoteContent, setEditNoteContent] = useState('');
   const { toast } = useToast();
 
   // Sanitize name input to prevent path traversal and ensure valid names
@@ -741,6 +750,284 @@ export default function FileExplorer() {
     }
   };
 
+  // Convert images to PDF
+  const convertImagesToPDF = async (imageFiles: FileItem[]) => {
+    try {
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      let isFirstPage = true;
+
+      for (const file of imageFiles) {
+        if (!file.mime_type?.startsWith('image/')) continue;
+
+        let imageUrl: string;
+        if (isAuthenticated === false && file.content) {
+          imageUrl = file.content;
+        } else if (file.file_path && isAuthenticated !== false) {
+          const { data, error } = await supabase.storage
+            .from('study-materials')
+            .createSignedUrl(file.file_path, 3600);
+          if (error) throw error;
+          imageUrl = data.signedUrl;
+        } else {
+          continue;
+        }
+
+        // Load image
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = imageUrl;
+        });
+
+        if (!isFirstPage) {
+          pdf.addPage();
+        }
+
+        // Calculate dimensions to fit page
+        const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margin on each side
+        const pageHeight = pdf.internal.pageSize.getHeight() - 20; // 10mm margin on each side
+        const imgAspect = img.width / img.height;
+        const pageAspect = pageWidth / pageHeight;
+
+        let width, height;
+        if (imgAspect > pageAspect) {
+          width = pageWidth;
+          height = pageWidth / imgAspect;
+        } else {
+          height = pageHeight;
+          width = pageHeight * imgAspect;
+        }
+
+        const x = (pdf.internal.pageSize.getWidth() - width) / 2;
+        const y = (pdf.internal.pageSize.getHeight() - height) / 2;
+
+        pdf.addImage(img, 'JPEG', x, y, width, height);
+        isFirstPage = false;
+      }
+
+      if (isFirstPage) {
+        toast({
+          title: "No images found",
+          description: "No images were found to convert to PDF",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const pdfBlob = pdf.output('blob');
+      const fileName = `images_${Date.now()}.pdf`;
+      saveAs(pdfBlob, fileName);
+
+      toast({
+        title: "PDF created",
+        description: `Created ${fileName} with ${imageFiles.length} image(s)`
+      });
+    } catch (error) {
+      console.error('Error creating PDF:', error);
+      toast({
+        title: "Error creating PDF",
+        description: "Could not create PDF from images",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Download folder as PDF (images only)
+  const downloadFolderAsPDF = async (folderId: string | null = currentFolderId) => {
+    try {
+      const allFiles = await getAllFilesInFolder(folderId);
+      const imageFiles = allFiles.filter(file => file.mime_type?.startsWith('image/'));
+      
+      if (imageFiles.length === 0) {
+        toast({
+          title: "No images found",
+          description: "This folder contains no images to convert to PDF",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      await convertImagesToPDF(imageFiles);
+    } catch (error) {
+      toast({
+        title: "Error creating PDF",
+        description: "Could not create PDF from folder images",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Get all files recursively in a folder
+  const getAllFilesInFolder = async (folderId: string | null): Promise<FileItem[]> => {
+    if (isAuthenticated === false) {
+      const localFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+      return localFiles.filter((file: FileItem) => file.folder_id === folderId);
+    }
+
+    const { data: files } = await supabase
+      .from('files')
+      .select('*')
+      .eq('folder_id', folderId);
+
+    return files || [];
+  };
+
+  // Crop image functionality
+  const handleCropImage = async (file: FileItem) => {
+    try {
+      let imageUrl: string;
+      if (isAuthenticated === false && file.content) {
+        imageUrl = file.content;
+      } else if (file.file_path && isAuthenticated !== false) {
+        const { data, error } = await supabase.storage
+          .from('study-materials')
+          .createSignedUrl(file.file_path, 3600);
+        if (error) throw error;
+        imageUrl = data.signedUrl;
+      } else {
+        toast({
+          title: "Cannot crop image",
+          description: "Image file is not accessible",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      setCropImageUrl(imageUrl);
+      setShowCropDialog(true);
+    } catch (error) {
+      toast({
+        title: "Error opening crop tool",
+        description: "Could not load image for cropping",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleSaveCroppedImage = async (croppedBlob: Blob) => {
+    try {
+      const fileName = `cropped_${Date.now()}.png`;
+      
+      if (isAuthenticated === false) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const newFile: FileItem = {
+            id: generateId(),
+            name: fileName,
+            type: 'upload',
+            content: reader.result as string,
+            file_path: null,
+            mime_type: 'image/png',
+            file_size: croppedBlob.size,
+            folder_id: currentFolderId || null,
+            user_id: 'anonymous',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          
+          const existingFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+          existingFiles.push(newFile);
+          localStorage.setItem('bookmark_files', JSON.stringify(existingFiles));
+          
+          loadFolderContents();
+          toast({
+            title: "Cropped image saved",
+            description: `Saved as "${fileName}"`
+          });
+        };
+        reader.readAsDataURL(croppedBlob);
+      } else {
+        const user = await supabase.auth.getUser();
+        const userId = user.data.user?.id || 'anonymous';
+        
+        const filePath = `${userId}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('study-materials')
+          .upload(filePath, croppedBlob);
+
+        if (uploadError) throw uploadError;
+
+        const { error: dbError } = await supabase
+          .from('files')
+          .insert([{
+            name: fileName,
+            type: 'upload',
+            file_path: filePath,
+            mime_type: 'image/png',
+            file_size: croppedBlob.size,
+            folder_id: currentFolderId,
+            user_id: userId
+          }]);
+
+        if (dbError) throw dbError;
+
+        loadFolderContents();
+        toast({
+          title: "Cropped image saved",
+          description: `Saved as "${fileName}"`
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error saving cropped image",
+        description: "Could not save the cropped image",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Edit note content
+  const startEditingNote = (file: FileItem) => {
+    setEditingNote(file);
+    setEditNoteContent(file.content || '');
+  };
+
+  const saveNoteContent = async () => {
+    if (!editingNote) return;
+
+    try {
+      if (isAuthenticated === false) {
+        const existingFiles = JSON.parse(localStorage.getItem('bookmark_files') || '[]');
+        const updatedFiles = existingFiles.map((file: FileItem) =>
+          file.id === editingNote.id
+            ? { ...file, content: editNoteContent, updated_at: new Date().toISOString() }
+            : file
+        );
+        localStorage.setItem('bookmark_files', JSON.stringify(updatedFiles));
+      } else {
+        const { error } = await supabase
+          .from('files')
+          .update({ content: editNoteContent })
+          .eq('id', editingNote.id);
+
+        if (error) throw error;
+      }
+
+      setEditingNote(null);
+      setEditNoteContent('');
+      loadFolderContents();
+      
+      // Update viewing file if it's the same note
+      if (viewingFile && viewingFile.id === editingNote.id) {
+        setViewingFile({ ...viewingFile, content: editNoteContent });
+      }
+
+      toast({
+        title: "Note updated",
+        description: "Note content has been saved"
+      });
+    } catch (error) {
+      toast({
+        title: "Error updating note",
+        description: "Could not save note content",
+        variant: "destructive"
+      });
+    }
+  };
+
   const viewFile = async (file: FileItem, index?: number) => {
     try {
       if (index !== undefined) {
@@ -858,13 +1145,14 @@ export default function FileExplorer() {
       }
 
       const zip = new JSZip();
-      const loadingToast = toast({
+      
+      toast({
         title: "Preparing download...",
         description: "Collecting folder contents"
       });
 
-      // Recursively get all files in the folder
-      await addFolderToZip(zip, folder.id, folder.name);
+      // Recursively get all files in the folder with proper structure
+      await addFolderToZip(zip, folder.id, '');
 
       // Generate and download the zip file
       const content = await zip.generateAsync({ type: "blob" });
@@ -883,7 +1171,7 @@ export default function FileExplorer() {
     }
   };
 
-  const addFolderToZip = async (zip: JSZip, folderId: string, folderPath: string = '') => {
+  const addFolderToZip = async (zip: JSZip, folderId: string, currentPath: string = '') => {
     // Skip for anonymous users - should not reach here due to guard above
     if (isAuthenticated === false) return;
 
@@ -895,13 +1183,12 @@ export default function FileExplorer() {
 
     if (filesError) throw filesError;
 
-    // Add files to zip
+    // Add files to zip maintaining folder structure
     for (const file of files || []) {
-      const filePath = folderPath ? `${folderPath}/${file.name}` : file.name;
-      
       if (file.type === 'note') {
         // Add note content as text file
-        zip.file(`${filePath}.txt`, file.content || '');
+        const fileName = currentPath ? `${currentPath}/${file.name}.txt` : `${file.name}.txt`;
+        zip.file(fileName, file.content || '');
       } else if (file.file_path) {
         // Download and add uploaded file
         try {
@@ -910,7 +1197,8 @@ export default function FileExplorer() {
             .download(file.file_path);
           
           if (!downloadError && fileData) {
-            zip.file(filePath, fileData);
+            const fileName = currentPath ? `${currentPath}/${file.name}` : file.name;
+            zip.file(fileName, fileData);
           }
         } catch (error) {
           console.warn(`Could not download file: ${file.name}`, error);
@@ -926,9 +1214,11 @@ export default function FileExplorer() {
 
     if (subfoldersError) throw subfoldersError;
 
-    // Recursively add subfolders
+    // Recursively add subfolders with proper path structure
     for (const subfolder of subfolders || []) {
-      const subfolderPath = folderPath ? `${folderPath}/${subfolder.name}` : subfolder.name;
+      const subfolderPath = currentPath ? `${currentPath}/${subfolder.name}` : subfolder.name;
+      // Create empty folder first to ensure it exists even if empty
+      zip.folder(subfolderPath);
       await addFolderToZip(zip, subfolder.id, subfolderPath);
     }
   };
@@ -1046,9 +1336,22 @@ export default function FileExplorer() {
                 className="gap-2"
               >
                 <Trash className="h-4 w-4" />
-                Delete Selected
-              </Button>
-            )}
+                 Delete Selected
+               </Button>
+             )}
+             {selectedItems.size > 0 && (
+               <>
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   onClick={() => downloadFolderAsPDF()}
+                   className="gap-2"
+                 >
+                   <FileDown className="h-4 w-4" />
+                   Save as PDF
+                 </Button>
+               </>
+             )}
           </div>
         )}
 
@@ -1223,15 +1526,24 @@ export default function FileExplorer() {
                       <Edit2 className="h-4 w-4 mr-2" />
                       Rename
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadFolder(folder);
-                      }}
-                    >
-                      <DownloadCloud className="h-4 w-4 mr-2" />
-                      Download
-                    </DropdownMenuItem>
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         downloadFolderAsPDF(folder.id);
+                       }}
+                     >
+                       <FileText className="h-4 w-4 mr-2" />
+                       Download as PDF
+                     </DropdownMenuItem>
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         downloadFolder(folder);
+                       }}
+                     >
+                       <DownloadCloud className="h-4 w-4 mr-2" />
+                       Download as ZIP
+                     </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1308,35 +1620,57 @@ export default function FileExplorer() {
                       <MoreHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        viewFile(file);
-                      }}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingItem({ type: 'file', id: file.id, name: file.name });
-                        setNewName(file.name);
-                      }}
-                    >
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadFile(file);
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download
-                    </DropdownMenuItem>
+                   <DropdownMenuContent align="end">
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         viewFile(file);
+                       }}
+                     >
+                       <Eye className="h-4 w-4 mr-2" />
+                       View
+                     </DropdownMenuItem>
+                     {file.type === 'note' && (
+                       <DropdownMenuItem 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           startEditingNote(file);
+                         }}
+                       >
+                         <Edit className="h-4 w-4 mr-2" />
+                         Edit Content
+                       </DropdownMenuItem>
+                     )}
+                     {file.mime_type?.startsWith('image/') && (
+                       <DropdownMenuItem 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleCropImage(file);
+                         }}
+                       >
+                         <Crop className="h-4 w-4 mr-2" />
+                         Crop Image
+                       </DropdownMenuItem>
+                     )}
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setEditingItem({ type: 'file', id: file.id, name: file.name });
+                         setNewName(file.name);
+                       }}
+                     >
+                       <Edit2 className="h-4 w-4 mr-2" />
+                       Rename
+                     </DropdownMenuItem>
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         downloadFile(file);
+                       }}
+                     >
+                       <Download className="h-4 w-4 mr-2" />
+                       Download
+                     </DropdownMenuItem>
                     <DropdownMenuItem 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1472,45 +1806,109 @@ export default function FileExplorer() {
                 )}
               </div>
             </SheetHeader>
-            <div className="mt-6">
-              {viewingFile.type === 'note' ? (
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap bg-muted p-4 rounded-md">
-                    {viewingFile.content || 'No content'}
-                  </pre>
-                </div>
-              ) : viewingFile.mime_type?.startsWith('image/') ? (
-                <div className="flex justify-center">
-                  <img 
-                    src={viewingFile.content || ''} 
-                    alt={viewingFile.name}
-                    className="max-w-full h-auto rounded-md"
-                  />
-                </div>
-              ) : viewingFile.mime_type === 'application/pdf' ? (
-                <div className="w-full h-[70vh]">
-                  <iframe
-                    src={viewingFile.content || ''}
-                    className="w-full h-full border rounded-md"
-                    title={viewingFile.name}
-                  />
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <File className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">File preview not available</p>
-                  <Button 
-                    onClick={() => downloadFile(viewingFile)} 
-                    className="mt-4"
-                  >
-                    Download File
-                  </Button>
-                </div>
-              )}
+             <div className="mt-6">
+               {viewingFile.type === 'note' ? (
+                 <div className="prose prose-sm max-w-none">
+                   <div className="bg-muted p-4 rounded-md">
+                     <div className="flex justify-between items-center mb-2">
+                       <span className="text-sm font-medium">Note Content</span>
+                       <Button 
+                         size="sm" 
+                         variant="outline"
+                         onClick={() => startEditingNote(viewingFile)}
+                       >
+                         <Edit className="h-4 w-4 mr-1" />
+                         Edit
+                       </Button>
+                     </div>
+                     <pre className="whitespace-pre-wrap text-sm">
+                       {viewingFile.content || 'No content'}
+                     </pre>
+                   </div>
+                 </div>
+               ) : viewingFile.mime_type?.startsWith('image/') ? (
+                 <div className="space-y-4">
+                   <div className="flex justify-center gap-2">
+                     <Button 
+                       size="sm" 
+                       variant="outline"
+                       onClick={() => handleCropImage(viewingFile)}
+                     >
+                       <Crop className="h-4 w-4 mr-1" />
+                       Crop
+                     </Button>
+                   </div>
+                   <div className="flex justify-center">
+                     <img 
+                       src={viewingFile.content || ''} 
+                       alt={viewingFile.name}
+                       className="max-w-full h-auto rounded-md"
+                     />
+                   </div>
+                 </div>
+               ) : viewingFile.mime_type === 'application/pdf' ? (
+                 <div className="w-full h-[70vh]">
+                   <iframe
+                     src={viewingFile.content || ''}
+                     className="w-full h-full border rounded-md"
+                     title={viewingFile.name}
+                   />
+                 </div>
+               ) : (
+                 <div className="text-center py-8">
+                   <File className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                   <p className="text-muted-foreground">File preview not available</p>
+                   <Button 
+                     onClick={() => downloadFile(viewingFile)} 
+                     className="mt-4"
+                   >
+                     Download File
+                   </Button>
+                 </div>
+               )}
             </div>
-          </SheetContent>
-        </Sheet>
-      )}
-    </div>
-  );
-}
+           </SheetContent>
+         </Sheet>
+       )}
+
+       {/* Image Crop Dialog */}
+       <ImageCropDialog
+         open={showCropDialog}
+         onOpenChange={setShowCropDialog}
+         imageUrl={cropImageUrl}
+         onSave={handleSaveCroppedImage}
+       />
+
+       {/* Note Edit Dialog */}
+       {editingNote && (
+         <Dialog open={!!editingNote} onOpenChange={() => setEditingNote(null)}>
+           <DialogContent className="max-w-4xl max-h-[90vh]">
+             <DialogHeader>
+               <DialogTitle>Edit Note: {editingNote.name}</DialogTitle>
+             </DialogHeader>
+             <div className="space-y-4">
+               <Textarea
+                 value={editNoteContent}
+                 onChange={(e) => setEditNoteContent(e.target.value)}
+                 className="min-h-[400px] font-mono text-sm"
+                 placeholder="Enter note content..."
+               />
+               <div className="flex space-x-2">
+                 <Button onClick={saveNoteContent} className="flex-1">
+                   Save Changes
+                 </Button>
+                 <Button 
+                   variant="outline" 
+                   onClick={() => setEditingNote(null)} 
+                   className="flex-1"
+                 >
+                   Cancel
+                 </Button>
+               </div>
+             </div>
+           </DialogContent>
+         </Dialog>
+       )}
+     </div>
+   );
+ }

@@ -24,8 +24,9 @@ export const ImageThumbnail: React.FC<ImageThumbnailProps> = ({
 
     const loadImage = async () => {
       try {
+        // Use correct bucket name for image thumbnails
         const { data, error } = await supabase.storage
-          .from('files')
+          .from('study-materials')
           .createSignedUrl(filePath, 3600); // 1 hour expiry
 
         if (error) throw error;
