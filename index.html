@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Bookmark</title>
     <meta name="description" content="Organize your study materials and bookmarks" />
     <meta name="author" content="Bookmark App" />
@@ -23,26 +26,29 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
+        // Auto-reload when service worker controller changes
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          window.location.reload();
+        });
+        
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
             .then(registration => {
               console.log('SW registered: ', registration);
               
-              // Check for updates every 60 seconds
+              // Check for updates frequently
               setInterval(() => {
                 registration.update();
-              }, 60000);
+              }, 30000); // Check every 30 seconds
               
-              // Handle updates
+              // Handle updates - immediate reload for seamless experience
               registration.addEventListener('updatefound', () => {
                 const newWorker = registration.installing;
                 if (newWorker) {
                   newWorker.addEventListener('statechange', () => {
                     if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                      // New version available, refresh the page
-                      if (confirm('A new version is available. Refresh to update?')) {
-                        window.location.reload();
-                      }
+                      // Force immediate reload when new version is ready
+                      window.location.reload();
                     }
                   });
                 }
