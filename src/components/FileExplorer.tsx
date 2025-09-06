@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   MoreHorizontal,
   Edit2,
+  Scan,
   Share,
   RotateCw,
   Trash2,
@@ -111,6 +112,7 @@ export default function FileExplorer() {
   const [editingNote, setEditingNote] = useState<FileItem | null>(null);
   const [editNoteContent, setEditNoteContent] = useState('');
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
   const { toast } = useToast();
 
   // Sanitize name input to prevent path traversal and ensure valid names
@@ -788,25 +790,32 @@ export default function FileExplorer() {
           pdf.addPage();
         }
 
-        // Calculate dimensions to fit page
+        // Use original image dimensions to maintain quality - no scaling
+        const originalWidth = img.naturalWidth || img.width;
+        const originalHeight = img.naturalHeight || img.height;
+        
+        // Calculate if we need to resize to fit page, but prefer original size
         const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margin on each side
         const pageHeight = pdf.internal.pageSize.getHeight() - 20; // 10mm margin on each side
-        const imgAspect = img.width / img.height;
-        const pageAspect = pageWidth / pageHeight;
-
-        let width, height;
-        if (imgAspect > pageAspect) {
-          width = pageWidth;
-          height = pageWidth / imgAspect;
-        } else {
-          height = pageHeight;
-          width = pageHeight * imgAspect;
+        
+        let finalWidth = originalWidth;
+        let finalHeight = originalHeight;
+        
+        // Only scale down if image is too large for page, never scale up
+        if (originalWidth > pageWidth || originalHeight > pageHeight) {
+          const scaleX = pageWidth / originalWidth;
+          const scaleY = pageHeight / originalHeight;
+          const scale = Math.min(scaleX, scaleY);
+          
+          finalWidth = originalWidth * scale;
+          finalHeight = originalHeight * scale;
         }
 
-        const x = (pdf.internal.pageSize.getWidth() - width) / 2;
-        const y = (pdf.internal.pageSize.getHeight() - height) / 2;
+        const x = (pdf.internal.pageSize.getWidth() - finalWidth) / 2;
+        const y = (pdf.internal.pageSize.getHeight() - finalHeight) / 2;
 
-        pdf.addImage(img, 'JPEG', x, y, width, height);
+        // Use original image with proper DPI settings to maintain quality
+        pdf.addImage(img, 'JPEG', x, y, finalWidth, finalHeight, undefined, 'MEDIUM');
         isFirstPage = false;
       }
 
@@ -1031,17 +1040,22 @@ export default function FileExplorer() {
     }
   };
 
-  // Share folder functionality
+  // Enhanced share functionality
   const handleShareFolder = async () => {
     try {
       const folderName = currentPath.length > 0 ? currentPath[currentPath.length - 1].name : 'Root Folder';
       const shareUrl = window.location.href;
+      const shareData = {
+        title: `Check out this folder: ${folderName}`,
+        text: `I'm sharing this folder with you: ${folderName}`,
+        url: shareUrl
+      };
       
-      if (navigator.share) {
-        await navigator.share({
-          title: `Check out this folder: ${folderName}`,
-          text: `I'm sharing this folder with you: ${folderName}`,
-          url: shareUrl
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        toast({
+          title: "Shared successfully",
+          description: "Folder shared successfully"
         });
       } else {
         await navigator.clipboard.writeText(shareUrl);
@@ -1051,9 +1065,57 @@ export default function FileExplorer() {
         });
       }
     } catch (error) {
+      // Fallback to clipboard
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        toast({
+          title: "Link copied",
+          description: "Folder link copied to clipboard"
+        });
+      } catch (clipboardError) {
+        toast({
+          title: "Error sharing",
+          description: "Could not share folder",
+          variant: "destructive"
+        });
+      }
+    }
+  };
+
+  // Share individual file
+  const handleShareFile = async (file: FileItem) => {
+    try {
+      let shareUrl = window.location.href;
+      let fileUrl = '';
+      
+      if (file.content) {
+        fileUrl = file.content;
+      } else if (file.file_path && isAuthenticated !== false) {
+        const { data } = await supabase.storage
+          .from('study-materials')
+          .createSignedUrl(file.file_path, 3600);
+        fileUrl = data?.signedUrl || '';
+      }
+      
+      const shareData = {
+        title: `Check out this file: ${file.name}`,
+        text: `I'm sharing this file with you: ${file.name}`,
+        url: fileUrl || shareUrl
+      };
+      
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(fileUrl || shareUrl);
+        toast({
+          title: "Link copied",
+          description: "File link copied to clipboard"
+        });
+      }
+    } catch (error) {
       toast({
         title: "Error sharing",
-        description: "Could not share folder",
+        description: "Could not share file",
         variant: "destructive"
       });
     }
@@ -1410,6 +1472,16 @@ export default function FileExplorer() {
           >
             <Share className="h-4 w-4" />
             <span className="text-xs sm:text-sm">Share</span>
+          </Button>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowScanner(true)}
+            className="gap-1 sm:gap-2 flex-1 sm:flex-none"
+          >
+            <Scan className="h-4 w-4" />
+            <span className="text-xs sm:text-sm">Scan</span>
           </Button>
           
         <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
