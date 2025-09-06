@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Canvas as FabricCanvas, FabricImage, Rect } from 'fabric';
 import { toast } from 'sonner';
+import { Share, RotateCw } from 'lucide-react';
 
 interface ImageCropDialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
   const [cropRect, setCropRect] = useState<Rect | null>(null);
   const [originalImage, setOriginalImage] = useState<FabricImage | null>(null);
+  const [rotation, setRotation] = useState(0);
 
   useEffect(() => {
     if (!canvasRef.current || !open) return;
@@ -43,23 +45,17 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
       const imgAspect = img.width! / img.height!;
       const canvasAspect = canvasWidth / canvasHeight;
 
-      let scale;
-      if (imgAspect > canvasAspect) {
-        scale = canvasWidth / img.width!;
-      } else {
-        scale = canvasHeight / img.height!;
-      }
+      let scale = Math.min(canvasWidth / img.width!, canvasHeight / img.height!) * 0.8;
 
       img.scale(scale);
       
-      // Center the image manually
-      const canvasCenter = {
-        x: canvasWidth / 2,
-        y: canvasHeight / 2
-      };
+      // Center the image
       img.set({
-        left: canvasCenter.x - (img.width! * scale) / 2,
-        top: canvasCenter.y - (img.height! * scale) / 2
+        left: canvasWidth / 2,
+        top: canvasHeight / 2,
+        originX: 'center',
+        originY: 'center',
+        angle: rotation
       });
       img.setCoords();
       img.selectable = false;
@@ -70,17 +66,19 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
 
       // Create crop rectangle
       const rect = new Rect({
-        left: 100,
-        top: 100,
+        left: canvasWidth / 2,
+        top: canvasHeight / 2,
         width: 200,
         height: 200,
-        fill: 'transparent',
-        stroke: '#ff0000',
+        fill: 'rgba(0,0,0,0.3)',
+        stroke: '#3b82f6',
         strokeWidth: 2,
         strokeDashArray: [5, 5],
         selectable: true,
         hasControls: true,
         hasBorders: true,
+        originX: 'center',
+        originY: 'center'
       });
 
       canvas.add(rect);
@@ -92,7 +90,30 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
     return () => {
       canvas.dispose();
     };
-  }, [open, imageUrl]);
+  }, [open, imageUrl, rotation]);
+
+  const handleRotate = () => {
+    setRotation(prev => (prev + 90) % 360);
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Image',
+          url: imageUrl
+        });
+      } catch (error) {
+        // Fallback to copy to clipboard
+        await navigator.clipboard.writeText(imageUrl);
+        toast.success('Image URL copied to clipboard');
+      }
+    } else {
+      // Fallback to copy to clipboard
+      await navigator.clipboard.writeText(imageUrl);
+      toast.success('Image URL copied to clipboard');
+    }
+  };
 
   const handleCrop = async () => {
     if (!fabricCanvas || !cropRect || !originalImage) {
@@ -101,56 +122,29 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
     }
 
     try {
-      // Get crop area relative to the original image
-      const imgLeft = originalImage.left!;
-      const imgTop = originalImage.top!;
-      const imgScaleX = originalImage.scaleX!;
-      const imgScaleY = originalImage.scaleY!;
+      // Export the cropped area directly from Fabric.js canvas
+      const cropLeft = cropRect.left! - cropRect.width! / 2;
+      const cropTop = cropRect.top! - cropRect.height! / 2;
+      const cropWidth = cropRect.width! * cropRect.scaleX!;
+      const cropHeight = cropRect.height! * cropRect.scaleY!;
 
-      const cropLeft = (cropRect.left! - imgLeft) / imgScaleX;
-      const cropTop = (cropRect.top! - imgTop) / imgScaleY;
-      const cropWidth = cropRect.width! / imgScaleX;
-      const cropHeight = cropRect.height! / imgScaleY;
+      const croppedDataURL = fabricCanvas.toDataURL({
+        left: cropLeft,
+        top: cropTop,
+        width: cropWidth,
+        height: cropHeight,
+        multiplier: 1,
+        format: 'png',
+        quality: 1
+      });
 
-      // Create a new canvas for cropping
-      const cropCanvas = document.createElement('canvas');
-      cropCanvas.width = cropWidth;
-      cropCanvas.height = cropHeight;
-      const ctx = cropCanvas.getContext('2d');
+      // Convert data URL to blob
+      const response = await fetch(croppedDataURL);
+      const blob = await response.blob();
 
-      if (!ctx) {
-        throw new Error('Could not get canvas context');
-      }
-
-      // Load original image
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        // Draw cropped portion
-        ctx.drawImage(
-          img,
-          Math.max(0, cropLeft),
-          Math.max(0, cropTop),
-          cropWidth,
-          cropHeight,
-          0,
-          0,
-          cropWidth,
-          cropHeight
-        );
-
-        // Convert to blob
-        cropCanvas.toBlob((blob) => {
-          if (blob) {
-            onSave(blob);
-            onOpenChange(false);
-            toast.success('Image cropped successfully');
-          } else {
-            toast.error('Failed to crop image');
-          }
-        }, 'image/png');
-      };
-      img.src = imageUrl;
+      onSave(blob);
+      onOpenChange(false);
+      toast.success('Image cropped successfully');
     } catch (error) {
       console.error('Error cropping image:', error);
       toast.error('Failed to crop image');
@@ -159,12 +153,24 @@ export const ImageCropDialog: React.FC<ImageCropDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh]">
+      <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw]">
         <DialogHeader>
-          <DialogTitle>Crop Image</DialogTitle>
+          <DialogTitle className="flex items-center justify-between">
+            Crop & Edit Image
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleRotate}>
+                <RotateCw className="h-4 w-4 mr-2" />
+                Rotate
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleShare}>
+                <Share className="h-4 w-4 mr-2" />
+                Share
+              </Button>
+            </div>
+          </DialogTitle>
         </DialogHeader>
-        <div className="flex justify-center">
-          <canvas ref={canvasRef} className="border border-gray-300 rounded" />
+        <div className="flex justify-center bg-gray-100 rounded-lg p-4">
+          <canvas ref={canvasRef} className="border border-border rounded shadow-lg max-w-full max-h-[60vh]" />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

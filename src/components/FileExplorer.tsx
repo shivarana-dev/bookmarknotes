@@ -18,6 +18,8 @@ import {
   ArrowLeft,
   MoreHorizontal,
   Edit2,
+  Share,
+  RotateCw,
   Trash2,
   Camera as CameraIcon,
   Download,
@@ -108,6 +110,7 @@ export default function FileExplorer() {
   const [cropImageUrl, setCropImageUrl] = useState<string>('');
   const [editingNote, setEditingNote] = useState<FileItem | null>(null);
   const [editNoteContent, setEditNoteContent] = useState('');
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const { toast } = useToast();
 
   // Sanitize name input to prevent path traversal and ensure valid names
@@ -1028,6 +1031,49 @@ export default function FileExplorer() {
     }
   };
 
+  // Share folder functionality
+  const handleShareFolder = async () => {
+    try {
+      const folderName = currentPath.length > 0 ? currentPath[currentPath.length - 1].name : 'Root Folder';
+      const shareUrl = window.location.href;
+      
+      if (navigator.share) {
+        await navigator.share({
+          title: `Check out this folder: ${folderName}`,
+          text: `I'm sharing this folder with you: ${folderName}`,
+          url: shareUrl
+        });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: "Link copied",
+          description: "Folder link copied to clipboard"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error sharing",
+        description: "Could not share folder",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Rotate image functionality
+  const handleRotateImage = async (file: FileItem) => {
+    // This would require image processing, for now just show a message
+    toast({
+      title: "Rotate feature",
+      description: "Use the crop dialog to rotate images",
+    });
+    handleCropImage(file);
+  };
+
+  // Full screen preview
+  const openFullScreenPreview = (file: FileItem) => {
+    setPreviewFile(file);
+  };
+
   const viewFile = async (file: FileItem, index?: number) => {
     try {
       if (index !== undefined) {
@@ -1356,6 +1402,16 @@ export default function FileExplorer() {
         )}
 
         <div className="flex flex-wrap gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => handleShareFolder()}
+            className="gap-1 sm:gap-2 flex-1 sm:flex-none"
+          >
+            <Share className="h-4 w-4" />
+            <span className="text-xs sm:text-sm">Share</span>
+          </Button>
+          
         <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" className="gap-1 sm:gap-2 flex-1 sm:flex-none">
