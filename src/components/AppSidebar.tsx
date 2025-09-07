@@ -167,6 +167,27 @@ export function AppSidebar() {
                 Contact Us
               </Button>
               
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const shareData = {
+                    title: 'Bookmark - Document Organization App',
+                    text: 'Check out this amazing app for organizing your documents and study materials!',
+                    url: window.location.origin
+                  };
+                  
+                  if (navigator.share) {
+                    navigator.share(shareData);
+                  } else {
+                    navigator.clipboard.writeText(window.location.origin);
+                  }
+                }}
+                className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent"
+              >
+                <BookmarkIcon className="h-4 w-4" />
+                Share App
+              </Button>
+              
               {user ? (
                 <Button
                   variant="ghost"
@@ -199,6 +220,28 @@ export function AppSidebar() {
                 title="Contact Us"
               >
                 <Mail className="h-4 w-4" />
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const shareData = {
+                    title: 'Bookmark - Document Organization App',
+                    text: 'Check out this amazing app for organizing your documents and study materials!',
+                    url: window.location.origin
+                  };
+                  
+                  if (navigator.share) {
+                    navigator.share(shareData);
+                  } else {
+                    navigator.clipboard.writeText(window.location.origin);
+                  }
+                }}
+                className="w-full text-sidebar-foreground hover:bg-sidebar-accent"
+                title="Share App"
+              >
+                <BookmarkIcon className="h-4 w-4" />
               </Button>
               
               {user ? (

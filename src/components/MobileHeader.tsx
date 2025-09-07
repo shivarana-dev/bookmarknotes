@@ -1,11 +1,15 @@
 import React from 'react';
-import { Menu, Mail, LogIn } from 'lucide-react';
+import { Menu, Mail, LogIn, Scan } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { supabase } from '@/integrations/supabase/client';
 
-export function MobileHeader() {
+interface MobileHeaderProps {
+  onScanClick?: () => void;
+}
+
+export function MobileHeader({ onScanClick }: MobileHeaderProps) {
   const { toggleSidebar } = useSidebar();
   const [user, setUser] = React.useState<any>(null);
 
@@ -43,6 +47,16 @@ export function MobileHeader() {
       </div>
       
       <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onScanClick}
+          className="h-8 w-8"
+          title="Document Scanner"
+        >
+          <Scan className="h-4 w-4" />
+        </Button>
+        
         {!user && (
           <Button
             variant="ghost"

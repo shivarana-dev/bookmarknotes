@@ -34,7 +34,9 @@ import {
   ChevronRight,
   FileText,
   Crop,
-  FileDown
+  FileDown,
+  Copy,
+  Link
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -53,6 +55,8 @@ import {
 import { ImageThumbnail } from '@/components/ImageThumbnail';
 import { ImageCropDialog } from '@/components/ImageCropDialog';
 import { Checkbox } from '@/components/ui/checkbox';
+import { StorageModeSelector } from '@/components/StorageModeSelector';
+import { DocumentScanner } from '@/components/DocumentScanner';
 
 interface Folder {
   id: string;
@@ -113,6 +117,8 @@ export default function FileExplorer() {
   const [editNoteContent, setEditNoteContent] = useState('');
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [showStorageSelector, setShowStorageSelector] = useState(false);
+  const [storageMode, setStorageMode] = useState<'local' | 'cloud'>('local');
   const { toast } = useToast();
 
   // Sanitize name input to prevent path traversal and ensure valid names
@@ -141,7 +147,7 @@ export default function FileExplorer() {
     return true;
   };
 
-  // Check authentication status
+  // Check authentication status and storage mode
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -149,11 +155,26 @@ export default function FileExplorer() {
     };
     checkAuth();
 
+    // Check storage mode on app load
+    const savedMode = localStorage.getItem('storage-mode');
+    if (!savedMode) {
+      setShowStorageSelector(true);
+    } else {
+      setStorageMode(savedMode as 'local' | 'cloud');
+    }
+
+    // Listen for global scanner events
+    const handleOpenScanner = () => setShowScanner(true);
+    window.addEventListener('open-scanner', handleOpenScanner);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setIsAuthenticated(!!session?.user);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('open-scanner', handleOpenScanner);
+    };
   }, []);
 
   useEffect(() => {
@@ -790,32 +811,42 @@ export default function FileExplorer() {
           pdf.addPage();
         }
 
-        // Use original image dimensions to maintain quality - no scaling
+        // Calculate pixel to millimeter conversion for high quality
+        const pixelsPerInch = 300; // High DPI for quality
+        const mmPerInch = 25.4;
+        const pixelsPerMm = pixelsPerInch / mmPerInch;
+        
+        // Get original image dimensions in pixels
         const originalWidth = img.naturalWidth || img.width;
         const originalHeight = img.naturalHeight || img.height;
         
-        // Calculate if we need to resize to fit page, but prefer original size
-        const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margin on each side
-        const pageHeight = pdf.internal.pageSize.getHeight() - 20; // 10mm margin on each side
+        // Convert to millimeters maintaining aspect ratio
+        const widthMm = originalWidth / pixelsPerMm;
+        const heightMm = originalHeight / pixelsPerMm;
         
-        let finalWidth = originalWidth;
-        let finalHeight = originalHeight;
+        // Page dimensions with margins
+        const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margin each side
+        const pageHeight = pdf.internal.pageSize.getHeight() - 20; // 10mm margin each side
         
-        // Only scale down if image is too large for page, never scale up
-        if (originalWidth > pageWidth || originalHeight > pageHeight) {
-          const scaleX = pageWidth / originalWidth;
-          const scaleY = pageHeight / originalHeight;
+        // Calculate scale only if image exceeds page bounds
+        let finalWidth = widthMm;
+        let finalHeight = heightMm;
+        
+        if (widthMm > pageWidth || heightMm > pageHeight) {
+          const scaleX = pageWidth / widthMm;
+          const scaleY = pageHeight / heightMm;
           const scale = Math.min(scaleX, scaleY);
           
-          finalWidth = originalWidth * scale;
-          finalHeight = originalHeight * scale;
+          finalWidth = widthMm * scale;
+          finalHeight = heightMm * scale;
         }
-
+        
+        // Center the image on the page
         const x = (pdf.internal.pageSize.getWidth() - finalWidth) / 2;
         const y = (pdf.internal.pageSize.getHeight() - finalHeight) / 2;
-
-        // Use original image with proper DPI settings to maintain quality
-        pdf.addImage(img, 'JPEG', x, y, finalWidth, finalHeight, undefined, 'MEDIUM');
+        
+        // Add image at high quality with precise dimensions
+        pdf.addImage(img, 'JPEG', x, y, finalWidth, finalHeight, undefined, 'SLOW');
         isFirstPage = false;
       }
 
@@ -1464,16 +1495,7 @@ export default function FileExplorer() {
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => handleShareFolder()}
-            className="gap-1 sm:gap-2 flex-1 sm:flex-none"
-          >
-            <Share className="h-4 w-4" />
-            <span className="text-xs sm:text-sm">Share</span>
-          </Button>
-          
+          {/* Move Scan to top header per request */}
           <Button 
             variant="outline" 
             size="sm" 
@@ -1481,7 +1503,7 @@ export default function FileExplorer() {
             className="gap-1 sm:gap-2 flex-1 sm:flex-none"
           >
             <Scan className="h-4 w-4" />
-            <span className="text-xs sm:text-sm">Scan</span>
+            <span className="text-xs sm:text-sm">Document Scanner</span>
           </Button>
           
         <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
@@ -1643,46 +1665,55 @@ export default function FileExplorer() {
                       <MoreHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingItem({ type: 'folder', id: folder.id, name: folder.name });
-                        setNewName(folder.name);
-                      }}
-                    >
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Rename
-                    </DropdownMenuItem>
+                   <DropdownMenuContent align="end">
                      <DropdownMenuItem 
                        onClick={(e) => {
                          e.stopPropagation();
-                         downloadFolderAsPDF(folder.id);
+                         handleShareFolder();
                        }}
                      >
-                       <FileText className="h-4 w-4 mr-2" />
-                       Download as PDF
+                       <Share className="h-4 w-4 mr-2" />
+                       Share Folder
                      </DropdownMenuItem>
                      <DropdownMenuItem 
                        onClick={(e) => {
                          e.stopPropagation();
-                         downloadFolder(folder);
+                         setEditingItem({ type: 'folder', id: folder.id, name: folder.name });
+                         setNewName(folder.name);
                        }}
                      >
-                       <DownloadCloud className="h-4 w-4 mr-2" />
-                       Download as ZIP
+                       <Edit2 className="h-4 w-4 mr-2" />
+                       Rename
                      </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteItem('folder', folder.id, folder.name);
-                      }}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadFolderAsPDF(folder.id);
+                        }}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Download as PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadFolder(folder);
+                        }}
+                      >
+                        <DownloadCloud className="h-4 w-4 mr-2" />
+                        Download as ZIP
+                      </DropdownMenuItem>
+                     <DropdownMenuItem 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         deleteItem('folder', folder.id, folder.name);
+                       }}
+                       className="text-destructive"
+                     >
+                       <Trash2 className="h-4 w-4 mr-2" />
+                       Delete
+                     </DropdownMenuItem>
+                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </CardHeader>
@@ -1748,68 +1779,88 @@ export default function FileExplorer() {
                       <MoreHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                   <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleShareFile(file);
+                        }}
+                      >
+                        <Share className="h-4 w-4 mr-2" />
+                        Share File
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openFullScreenPreview(file);
+                        }}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        Full Screen View
+                      </DropdownMenuItem>
+                      {file.type === 'note' && (
+                        <DropdownMenuItem 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditingNote(file);
+                          }}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Content
+                        </DropdownMenuItem>
+                      )}
+                      {file.mime_type?.startsWith('image/') && (
+                        <>
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCropImage(file);
+                            }}
+                          >
+                            <Crop className="h-4 w-4 mr-2" />
+                            Crop Image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRotateImage(file);
+                            }}
+                          >
+                            <RotateCw className="h-4 w-4 mr-2" />
+                            Rotate Image
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingItem({ type: 'file', id: file.id, name: file.name });
+                          setNewName(file.name);
+                        }}
+                      >
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadFile(file);
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download
+                      </DropdownMenuItem>
                      <DropdownMenuItem 
                        onClick={(e) => {
                          e.stopPropagation();
-                         viewFile(file);
+                         deleteItem('file', file.id, file.name);
                        }}
+                       className="text-destructive"
                      >
-                       <Eye className="h-4 w-4 mr-2" />
-                       View
+                       <Trash2 className="h-4 w-4 mr-2" />
+                       Delete
                      </DropdownMenuItem>
-                     {file.type === 'note' && (
-                       <DropdownMenuItem 
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           startEditingNote(file);
-                         }}
-                       >
-                         <Edit className="h-4 w-4 mr-2" />
-                         Edit Content
-                       </DropdownMenuItem>
-                     )}
-                     {file.mime_type?.startsWith('image/') && (
-                       <DropdownMenuItem 
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           handleCropImage(file);
-                         }}
-                       >
-                         <Crop className="h-4 w-4 mr-2" />
-                         Crop Image
-                       </DropdownMenuItem>
-                     )}
-                     <DropdownMenuItem 
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         setEditingItem({ type: 'file', id: file.id, name: file.name });
-                         setNewName(file.name);
-                       }}
-                     >
-                       <Edit2 className="h-4 w-4 mr-2" />
-                       Rename
-                     </DropdownMenuItem>
-                     <DropdownMenuItem 
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         downloadFile(file);
-                       }}
-                     >
-                       <Download className="h-4 w-4 mr-2" />
-                       Download
-                     </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteItem('file', file.id, file.name);
-                      }}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
+                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </CardHeader>
@@ -1866,7 +1917,7 @@ export default function FileExplorer() {
         <Sheet open={showFileViewer} onOpenChange={setShowFileViewer}>
           <SheetContent 
             side="bottom" 
-            className="h-[90vh] overflow-y-auto"
+            className="h-screen w-screen overflow-y-auto"
             onTouchStart={(e) => {
               setTouchEnd(null);
               setTouchStart(e.targetTouches[0].clientX);
@@ -1954,26 +2005,34 @@ export default function FileExplorer() {
                      </pre>
                    </div>
                  </div>
-               ) : viewingFile.mime_type?.startsWith('image/') ? (
-                 <div className="space-y-4">
-                   <div className="flex justify-center gap-2">
-                     <Button 
-                       size="sm" 
-                       variant="outline"
-                       onClick={() => handleCropImage(viewingFile)}
-                     >
-                       <Crop className="h-4 w-4 mr-1" />
-                       Crop
-                     </Button>
-                   </div>
-                   <div className="flex justify-center">
-                     <img 
-                       src={viewingFile.content || ''} 
-                       alt={viewingFile.name}
-                       className="max-w-full h-auto rounded-md"
-                     />
-                   </div>
-                 </div>
+                ) : viewingFile.mime_type?.startsWith('image/') ? (
+                  <div className="space-y-4 h-full">
+                    <div className="flex justify-center gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleCropImage(viewingFile)}
+                      >
+                        <Crop className="h-4 w-4 mr-1" />
+                        Crop
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleRotateImage(viewingFile)}
+                      >
+                        <RotateCw className="h-4 w-4 mr-1" />
+                        Rotate
+                      </Button>
+                    </div>
+                    <div className="flex justify-center h-[80vh] items-center">
+                      <img 
+                        src={viewingFile.content || ''} 
+                        alt={viewingFile.name}
+                        className="max-w-full max-h-full object-contain rounded-md"
+                      />
+                    </div>
+                  </div>
                ) : viewingFile.mime_type === 'application/pdf' ? (
                  <div className="w-full h-[70vh]">
                    <iframe
@@ -2007,36 +2066,131 @@ export default function FileExplorer() {
          onSave={handleSaveCroppedImage}
        />
 
-       {/* Note Edit Dialog */}
-       {editingNote && (
-         <Dialog open={!!editingNote} onOpenChange={() => setEditingNote(null)}>
-           <DialogContent className="max-w-4xl max-h-[90vh]">
-             <DialogHeader>
-               <DialogTitle>Edit Note: {editingNote.name}</DialogTitle>
-             </DialogHeader>
-             <div className="space-y-4">
-               <Textarea
-                 value={editNoteContent}
-                 onChange={(e) => setEditNoteContent(e.target.value)}
-                 className="min-h-[400px] font-mono text-sm"
-                 placeholder="Enter note content..."
-               />
-               <div className="flex space-x-2">
-                 <Button onClick={saveNoteContent} className="flex-1">
-                   Save Changes
-                 </Button>
-                 <Button 
-                   variant="outline" 
-                   onClick={() => setEditingNote(null)} 
-                   className="flex-1"
-                 >
-                   Cancel
-                 </Button>
-               </div>
-             </div>
-           </DialogContent>
-         </Dialog>
-       )}
-     </div>
-   );
- }
+        {/* Note Edit Dialog */}
+        {editingNote && (
+          <Dialog open={!!editingNote} onOpenChange={() => setEditingNote(null)}>
+            <DialogContent className="max-w-4xl max-h-[90vh]">
+              <DialogHeader>
+                <DialogTitle>Edit Note: {editingNote.name}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Textarea
+                  value={editNoteContent}
+                  onChange={(e) => setEditNoteContent(e.target.value)}
+                  className="min-h-[400px] font-mono text-sm"
+                  placeholder="Enter note content..."
+                />
+                <div className="flex space-x-2">
+                  <Button onClick={saveNoteContent} className="flex-1">
+                    Save Changes
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setEditingNote(null)} 
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Full Screen Preview Dialog */}
+        {previewFile && (
+          <Dialog open={!!previewFile} onOpenChange={() => setPreviewFile(null)}>
+            <DialogContent className="max-w-[95vw] max-h-[95vh] w-full h-full p-2">
+              <DialogHeader className="pb-2">
+                <DialogTitle className="flex items-center justify-between">
+                  <span>{previewFile.name}</span>
+                  <div className="flex gap-2">
+                    {previewFile.mime_type?.startsWith('image/') && (
+                      <>
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleCropImage(previewFile)}
+                        >
+                          <Crop className="h-4 w-4 mr-1" />
+                          Crop
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleRotateImage(previewFile)}
+                        >
+                          <RotateCw className="h-4 w-4 mr-1" />
+                          Rotate
+                        </Button>
+                      </>
+                    )}
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => downloadFile(previewFile)}
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Download
+                    </Button>
+                  </div>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="h-[85vh] flex items-center justify-center">
+                {previewFile.mime_type?.startsWith('image/') ? (
+                  <img 
+                    src={previewFile.content || ''} 
+                    alt={previewFile.name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : previewFile.type === 'note' ? (
+                  <div className="w-full h-full overflow-auto p-4 bg-muted rounded">
+                    <pre className="whitespace-pre-wrap text-sm">
+                      {previewFile.content || 'No content'}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <File className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Preview not available for this file type</p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Storage Mode Selector */}
+        <StorageModeSelector
+          open={showStorageSelector}
+          onOpenChange={setShowStorageSelector}
+          onModeSelect={(mode) => {
+            setStorageMode(mode);
+            if (mode === 'cloud' && !isAuthenticated) {
+              toast({
+                title: "Sign In Required",
+                description: "Please sign in to use cloud storage features"
+              });
+            }
+          }}
+        />
+
+        {/* Document Scanner */}
+        <DocumentScanner
+          open={showScanner}
+          onOpenChange={setShowScanner}
+          onSave={async (scannedImages) => {
+            // Process scanned images
+            for (const [index, imageBlob] of scannedImages.entries()) {
+              const fileName = `scanned_document_${Date.now()}_${index + 1}.jpg`;
+              // Create file object compatible with File API
+              const fileData = new globalThis.File([imageBlob], fileName, { type: 'image/jpeg' });
+              await processUploadedFile(fileData);
+            }
+            setShowScanner(false);
+            loadFolderContents();
+          }}
+        />
+      </div>
+    );
+  }

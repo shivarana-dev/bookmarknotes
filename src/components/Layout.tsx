@@ -4,7 +4,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { MobileHeader } from '@/components/MobileHeader';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
-import { LogIn } from 'lucide-react';
+import { LogIn, Scan } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -40,11 +40,22 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <AppSidebar />
         
         <div className="flex-1 flex flex-col">
-          <MobileHeader />
+          <MobileHeader onScanClick={() => {
+            // Trigger scanner from global context
+            window.dispatchEvent(new CustomEvent('open-scanner'));
+          }} />
           
           {/* Desktop Header */}
           <div className="hidden md:flex items-center justify-between p-4 border-b border-border">
-            <div className="flex-1" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-scanner'))}
+              className="gap-2"
+            >
+              <Scan className="h-4 w-4" />
+              Document Scanner
+            </Button>
             <div className="flex items-center gap-2">
               {!user && (
                 <Button
